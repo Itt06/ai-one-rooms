@@ -346,7 +346,7 @@ func _draw() -> void:
 	draw_rect(Rect2(0,0,900,720),Color("#263238"))
 	for id in room_state.objects:
 		var object:Dictionary=room_state.objects[id]; var p:Vector2=object.position
-		if object.has("origin_cell"): p=Vector2(70,70)+Vector2(object.origin_cell)*60.0
+		if object.has("origin_cell"): p=RoomVisualAdapter.cell_to_position(object.origin_cell)
 		if bool(object.get("movable",false)): draw_rect(Rect2(p-Vector2(18,18),Vector2(36,36)),Color("#bcaaa4")); draw_string(ThemeDB.fallback_font,p-Vector2(14,24),str(id),HORIZONTAL_ALIGNMENT_LEFT,-1,10,Color.WHITE)
 		else: draw_circle(p,8,Color("#8d6e63"))
 	var resident_color := Color("#90caf9") if status == "thinking" else Color("#4fc3f7")
@@ -367,7 +367,7 @@ func _activity_text()->String:
 	return "waiting" if status=="idle" else status
 
 func _cell_to_position(cell:Vector2i)->Vector2:
-	return Vector2(70,70)+Vector2(cell)*60.0
+	return RoomVisualAdapter.cell_to_position(cell)
 
 func _state_revision()->int:
 	return room_state.revision+resident_state.revision

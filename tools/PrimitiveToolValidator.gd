@@ -13,7 +13,7 @@ static func validate(step, room:RoomState, grid:RoomGrid, resident:Dictionary, i
 	if definition.target=="object" and not room.objects.has(target):return _fail("target_not_found")
 	if definition.target=="item" and not items.has(target):return _fail("item_not_found")
 	if tool=="move_to":
-		if not args.x is int or not args.y is int:return _fail("cell_must_be_integer")
+		if not _integer_number(args.x) or not _integer_number(args.y):return _fail("cell_must_be_integer")
 		var destination:=Vector2i(int(args.x),int(args.y)); if not grid.is_inside(destination) or grid.find_path(resident.current_cell,destination,room.blocked_cells()).is_empty():return _fail("destination_unreachable")
 	if tool=="move_near":
 		if InteractionResolver.nearest_cell(room,target,resident.current_cell).get("ok",false)!=true:return _fail("target_unreachable")
@@ -23,7 +23,7 @@ static func validate(step, room:RoomState, grid:RoomGrid, resident:Dictionary, i
 	if tool in ["move_object","rotate_object"]:
 		if not bool(room.objects[target].get("movable",false)):return _fail("object_not_movable")
 		if InteractionResolver.nearest_cell(room,target,resident.current_cell).get("ok",false)!=true:return _fail("target_not_reachable")
-		if tool=="move_object" and (not args.x is int or not args.y is int):return _fail("destination_cell_must_be_integer")
+		if tool=="move_object" and (not _integer_number(args.x) or not _integer_number(args.y)):return _fail("destination_cell_must_be_integer")
 		if tool=="rotate_object" and int(args.rotation) not in [0,90,180,270]:return _fail("invalid_rotation")
 		if tool=="move_object" and not bool(room.validate_object_placement(target,Vector2i(int(args.x),int(args.y)),int(room.objects[target].get("rotation",0)),[resident.current_cell]).get("ok",false)):return _fail("invalid_placement")
 	if tool in ["open","close","turn_on","turn_off"] and tool not in room.objects[target].get("supported_tools",[]):return _fail("tool_not_supported")
@@ -37,10 +37,13 @@ static func validate(step, room:RoomState, grid:RoomGrid, resident:Dictionary, i
 		var container:=str(items[target].get("container",""))
 		if room.objects.has(container) and not bool(InteractionResolver.nearest_cell(room,container,resident.current_cell).get("ok",false)):return _fail("target_not_reachable")
 	if tool=="put_down":
-		if resident.get("held_item_id","")!=target or not args.x is int or not args.y is int:return _fail("invalid_drop_args")
+		if resident.get("held_item_id","")!=target or not _integer_number(args.x) or not _integer_number(args.y):return _fail("invalid_drop_args")
 		var drop:=Vector2i(int(args.x),int(args.y)); if not grid.is_inside(drop) or drop in room.blocked_cells() or drop==resident.current_cell:return _fail("drop_cell_blocked")
 	if definition.target=="object" and tool in ActivityCatalog.DEFINITIONS and tool not in ["move_near","inspect","move_object","rotate_object"]:
 		if InteractionResolver.nearest_cell(room,target,resident.current_cell).get("ok",false)!=true:return _fail("target_not_reachable")
 	return {"ok":true,"step":step}
 
 static func _fail(error:String)->Dictionary:return {"ok":false,"error":error}
+
+static func _integer_number(value)->bool:
+	return (value is int) or (value is float and is_equal_approx(float(value),round(float(value))))
