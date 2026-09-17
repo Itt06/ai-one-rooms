@@ -1,0 +1,53 @@
+class_name ResidentHarness
+extends Node
+
+signal decision_ready(decision: Dictionary, latency_ms: int, raw_response: String)
+signal decision_failed(error_message: String, latency_ms: int, raw_response: String)
+
+var client: LLMClient
+var _observation: Dictionary = {}
+var _candidates: Array = []
+var _room: RoomState
+var _goals: Array = []
+var _config: Dictionary = {}
+var _system_prompt := ""
+var _repair_attempted := false
+var _last_raw_response := ""
+
+func _ready() -> void:
+	client = LLMClient.new()
+	add_child(client)
+	client.completed.connect(_on_client_completed)
+
+func is_busy() -> bool:
+	return client != null and client.is_busy()
+
+func request_decision(observation: Dictionary, candidates: Array, room: RoomState, goals: Array, config: Dictionary, system_prompt: String) -> bool:
+	if is_busy():
+		return false
+	_observation = observation.duplicate(true)
+	_candidates = candidates.duplicate(true)
+	_room = room
+	_goals = goals.duplicate(true)
+	_config = config.duplicate(true)
+	_system_prompt = system_prompt
+	_repair_attempted = false
+	_last_raw_response = ""
+	return client.request_decision(_config, _system_prompt, _observation)
+
+func _on_client_completed(success: bool, content: String, raw_response: String, error_message: String, latency_ms: int) -> void:
+	_last_raw_response = raw_response
+	if not success:
+		decision_failed.emit(error_message, latency_ms, raw_response)
+		return
+	var parsed = JSON.parse_string(content)
+	var validation := ActionValidator.validate(parsed, _candidates, _room, _goals)
+	if validation.ok:
+		decision_ready.emit(validation.decision, latency_ms, raw_response)
+		return
+	if not _repair_attempted:
+		_repair_attempted = true
+		var repair := "Your previous output was invalid: %s. Return only valid JSON using exactly one currently available action and allowed target." % validation.error
+		if client.request_decision(_config, _system_prompt, _observation, repair):
+			return
+	decision_failed.emit(str(validation.error), latency_ms, raw_response)
