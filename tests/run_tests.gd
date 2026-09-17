@@ -14,6 +14,7 @@ func _initialize() -> void:
 	_test_unified_life_loop()
 	_test_affordances_and_reachability()
 	_test_save_round_trip_and_migration()
+	_test_harness_authoritative_snapshot()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -159,7 +160,20 @@ func _test_unified_life_loop() -> void:
 	_check(bool(wait.update(1.0).get("completed",false)), "wait should complete after ten minutes")
 
 func _test_affordances_and_reachability() -> void:
-	var room:=RoomState.new(); var resident:=ResidentState.new()
+	var room:=RoomState.new(); var resident:=ResidentState.new(); resident.current_cell=Vector2i(0,0)
+	var far_data={"current_cell":resident.current_cell,"held_item_id":""}
+	for probe in [
+		{"tool":"pick_up","args":{"target":"book_01"}},
+		{"tool":"sit","args":{"target":"chair"}},
+		{"tool":"lie_down","args":{"target":"bed"}},
+		{"tool":"open","args":{"target":"fridge"}},
+		{"tool":"move_object","args":{"target":"chair","x":5,"y":1}}
+	]:
+		var rejected:=PrimitiveToolValidator.validate(probe,room,room.grid,far_data,room.items)
+		_check(not bool(rejected.get("ok",false)), "remote interaction should be rejected: %s"%probe.tool)
+	resident.current_cell=room.objects["bookshelf"].interaction_cells[0]
+	var near_pick:=PrimitiveToolValidator.validate({"tool":"pick_up","args":{"target":"book_01"}},room,room.grid,{"current_cell":resident.current_cell,"held_item_id":""},room.items)
+	_check(bool(near_pick.get("ok",false)), "near interaction should be accepted")
 	var tools:=PrimitiveToolCatalog.available(room,{"held_item_id":""}); var fridge_open:=false; var close_available:=false
 	for entry in tools:
 		if entry.tool=="open" and "fridge" in entry.valid_targets:fridge_open=true
@@ -172,6 +186,21 @@ func _test_affordances_and_reachability() -> void:
 	_check(bool(nearest.get("ok",false)) and room.grid.is_inside(nearest.cell), "trash bin should have an in-grid reachable interaction cell")
 	var invalid:=PrimitiveToolValidator.validate({"tool":"open","args":{"target":"bed"}},room,room.grid,{"current_cell":resident.current_cell,"held_item_id":""},room.items)
 	_check(not bool(invalid.get("ok",false)), "unsupported open target should be rejected")
+	resident.current_cell=room.objects["pc"].interaction_cells[0]
+	var pc_off:=PrimitiveToolValidator.validate({"tool":"use_pc","args":{"target":"pc"}},room,room.grid,{"current_cell":resident.current_cell,"held_item_id":""},room.items)
+	_check(not bool(pc_off.get("ok",false)), "PC off should reject use_pc")
+	PrimitiveToolExecutor.execute({"tool":"turn_on","args":{"target":"pc"}},room,resident,ResidentNeeds.new())
+	var pc_on:=PrimitiveToolValidator.validate({"tool":"use_pc","args":{"target":"pc"}},room,room.grid,{"current_cell":resident.current_cell,"held_item_id":""},room.items)
+	_check(bool(pc_on.get("ok",false)), "PC on should allow use_pc")
+
+func _test_harness_authoritative_snapshot() -> void:
+	var room:=RoomState.new(); var resident:=ResidentState.new(); var needs:=ResidentNeeds.new(); resident.current_cell=room.objects["bookshelf"].interaction_cells[0]; resident.held_item_id="book_01"; resident.posture="sitting"; resident.posture_target_id="chair"; room.items["book_01"].location="held"; room.items["book_01"].held_by="resident"
+	var harness:=ResidentHarness.new(); harness._room=room; harness._goals=[]; harness._resident_snapshot=resident.snapshot(); harness._needs_snapshot=needs.snapshot()
+	var decision={"decision_type":"plan","reason":"read","plan":[{"tool":"read","args":{"target":"book_01"}}],"goal_updates":{"add":[],"complete":[],"abandon":[]}}
+	var result:=harness._validate_semantic(decision)
+	_check(bool(result.get("ok",false)), "Harness should accept a held-book plan from authoritative snapshot")
+	_check(harness._resident_snapshot.get("held_item_id","")=="book_01" and harness._resident_snapshot.get("posture","")=="sitting", "Harness snapshot should preserve held item and posture")
+	harness.free()
 
 func _test_save_round_trip_and_migration() -> void:
 	var room:=RoomState.new(); room.objects.chair.state=true; room.move_object("chair",Vector2i(5,1),0); room.items.food_stack.quantity=2
@@ -182,3 +211,9 @@ func _test_save_round_trip_and_migration() -> void:
 	_check(resident_loaded.held_item_id=="book_01" and resident_loaded.posture=="sitting", "resident state should round-trip")
 	var migrated:=SaveManager._migrate_versioned({"save_version":2},2)
 	_check(int(migrated.save_version)==SaveManager.SAVE_VERSION and migrated.has("plan_history") and migrated.has("skills"), "older save versions should migrate")
+	var test_path:="user://one_room_test_roundtrip.json"
+	var payload:={"sim_minutes":600.0,"room":room.serialize(),"resident_state":resident.serialize(),"needs":ResidentNeeds.new().snapshot(),"memory_store":{"entries":[]},"goal_store":{"goals":[]},"preferences":{},"diary":[],"decision_history":[],"plan_history":[],"skills":{"skills":[]}}
+	_check(SaveManager.save_state(payload,test_path), "SaveManager should write test round-trip")
+	var persisted:=SaveManager.load_state(test_path)
+	_check(persisted.has("room") and persisted.has("resident_state") and int(persisted.room.items.food_stack.quantity)==2, "SaveManager should load authoritative state")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(test_path))

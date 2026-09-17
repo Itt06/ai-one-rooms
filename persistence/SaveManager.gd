@@ -4,19 +4,19 @@ extends RefCounted
 const SAVE_VERSION := 4
 const SAVE_PATH := "user://one_room_save.json"
 
-static func save_state(state: Dictionary) -> bool:
+static func save_state(state: Dictionary, path: String = SAVE_PATH) -> bool:
 	var payload := state.duplicate(true)
 	payload["save_version"] = SAVE_VERSION
-	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
 		return false
 	file.store_string(JSON.stringify(payload))
 	return true
 
-static func load_state() -> Dictionary:
-	if not FileAccess.file_exists(SAVE_PATH):
+static func load_state(path: String = SAVE_PATH) -> Dictionary:
+	if not FileAccess.file_exists(path):
 		return {}
-	var parsed = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
 	if not (parsed is Dictionary):
 		return {}
 	var version := int(parsed.get("save_version", 0))

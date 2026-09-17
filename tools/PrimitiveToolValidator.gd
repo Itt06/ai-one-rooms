@@ -37,6 +37,8 @@ static func validate(step, room:RoomState, grid:RoomGrid, resident:Dictionary, i
 		if resident.get("held_item_id","")!="" or str(items[target].get("location",""))=="held" or not bool(items[target].get("portable",false)) or int(items[target].get("quantity",1))<=0:return _fail("hands_or_item_invalid")
 		var container:=str(items[target].get("container",""))
 		if room.objects.has(container) and not InteractionResolver.is_at_interaction_cell(room,container,resident.current_cell):return _fail("item_requires_proximity_to_%s"%container)
+		if room.objects.has(container) and container=="fridge" and not bool(room.objects[container].get("state",false)):return _fail("fridge_closed")
+	if tool in ["use_pc","watch_tv","order_groceries"] and target in ["pc","tv"] and not bool(room.objects[target].get("state",false)):return _fail("target_is_off")
 	if tool=="put_down":
 		if resident.get("held_item_id","")!=target or not _integer_number(args.x) or not _integer_number(args.y):return _fail("invalid_drop_args")
 		var drop:=Vector2i(int(args.x),int(args.y)); if not grid.is_inside(drop) or drop in room.blocked_cells() or drop==resident.current_cell:return _fail("drop_cell_blocked")

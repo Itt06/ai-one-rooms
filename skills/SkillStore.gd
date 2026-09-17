@@ -6,10 +6,15 @@ var skills:Array=[]
 var candidate_stats:Dictionary={}
 
 func learn(history:Array, room:RoomState)->void:
-	for candidate in SkillCandidateDetector.detect(history,room):
+	var detected:=SkillCandidateDetector.detect(history,room)
+	candidate_stats["candidate_detections"]=int(candidate_stats.get("candidate_detections",0))+detected.size()
+	for candidate in detected:
+		candidate_stats["eligible_sequences"] = int(candidate_stats.get("eligible_sequences",0))+1
 		var normalized:=SkillCandidateDetector.normalize(candidate.steps,room); var id:="skill_"+_name_for(normalized)
 		if _find(id)!=null: continue
+		candidate_stats["threshold_reached"]=int(candidate_stats.get("threshold_reached",0))+1
 		skills.append({"id":id,"name":id.trim_prefix("skill_"),"description":_description(normalized),"steps":_abstract(candidate.steps,room),"times_observed":candidate.successes,"offer_count":0,"times_used":0,"success_count":0,"failure_count":0,"status":"active"})
+		candidate_stats["skills_created"]=int(candidate_stats.get("skills_created",0))+1
 		if skills.size()>MAX_SKILLS: skills.pop_front()
 
 func relevant(room:RoomState, held_item:String, needs:Dictionary)->Array:
@@ -17,6 +22,7 @@ func relevant(room:RoomState, held_item:String, needs:Dictionary)->Array:
 	for skill in skills:
 		if skill.status!="active":continue
 		skill.offer_count=int(skill.get("offer_count",0))+1
+		candidate_stats["skills_offered"]=int(candidate_stats.get("skills_offered",0))+1
 		out.append({"id":skill.id,"name":skill.name,"description":skill.description,"success_rate":_rate(skill)})
 		if out.size()>=8:break
 	return out

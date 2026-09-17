@@ -42,3 +42,10 @@ func advance(minutes: float) -> void:
 func apply(effects: Dictionary) -> void:
 	for key in effects:
 		values[key] = clamp(float(values.get(key,0.0)) + float(effects[key]), 0.0, 100.0)
+
+func snapshot()->Dictionary:
+	return values.duplicate(true)
+
+func load_snapshot(snapshot:Dictionary)->void:
+	for key in values:
+		if snapshot.has(key): values[key]=clamp(float(snapshot[key]),0.0,100.0)
