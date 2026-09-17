@@ -38,6 +38,7 @@ func _initialize() -> void:
 	print("Run-local activities failed: %d" % _delta(scene,"activities_failed",baseline))
 	print("Run-local activities interrupted: %d" % _delta(scene,"activities_interrupted",baseline))
 	print("Run-local fallback waits: %d" % _delta(scene,"fallback_waits",baseline))
+	for category in ["fallback_schema","fallback_semantic","fallback_repair_failed","fallback_transport","fallback_other"]: print("%s: %d" % [category,_delta(scene,category,baseline)])
 	print("Schema repair attempts: %d" % _delta(scene,"schema_repair_attempts",baseline))
 	print("Semantic repair attempts: %d" % _delta(scene,"semantic_repair_attempts",baseline))
 	print("Repair recovered: %d" % _delta(scene,"repair_recovered",baseline))

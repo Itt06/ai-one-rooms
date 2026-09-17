@@ -236,6 +236,12 @@ func _check_interrupt() -> void:
 
 func _fallback(message: String) -> void:
 	diagnostics.fallback_waits+=1
+	var category:="fallback_other"; var lower:=message.to_lower()
+	if "schema" in lower or "json" in lower: category="fallback_schema"
+	elif "semantic" in lower or "preflight" in lower or "target" in lower or "tool" in lower: category="fallback_semantic"
+	elif "repair" in lower: category="fallback_repair_failed"
+	elif "transport" in lower or "request" in lower or "offline" in lower: category="fallback_transport"
+	diagnostics[category]=int(diagnostics.get(category,0))+1
 	validation_error = message
 	reason = "%s; I will wait." % message
 	if plan_executor.active:_abort_plan(message)
