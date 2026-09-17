@@ -27,13 +27,31 @@ static func available(room:RoomState,resident:Dictionary)->Array:
 		if TOOLS[id].target!="none" and targets.is_empty():continue
 		var entry={"tool":id,"target_type":TOOLS[id].target,"args_schema":TOOLS[id].args_schema}
 		if TOOLS[id].target!="none":entry["valid_targets"]=targets
+		if TOOLS[id].target!="none":entry["target_hints"]=_target_hints(room,id,targets,resident)
 		result.append(entry)
 	return result
+
+static func _target_hints(room:RoomState,tool:String,targets:Array,resident:Dictionary)->Dictionary:
+	var hints:Dictionary={}; var cell:Vector2i=resident.get("current_cell",resident.get("cell",Vector2i(-1,-1)))
+	for target in targets:
+		var hint:Dictionary={"interactable_now":false}
+		if room.objects.has(target):
+			hint["interactable_now"]=InteractionResolver.is_at_interaction_cell(room,target,cell)
+			if tool not in ["move_near","inspect"]:hint["requires_proximity_to"]=target
+		elif room.items.has(target):
+			var container:=str(room.items[target].get("container",""))
+			if room.objects.has(container):
+				hint["interactable_now"]=InteractionResolver.is_at_interaction_cell(room,container,cell); hint["requires_proximity_to"]=container
+		hints[target]=hint
+	return hints
 
 static func _object_targets(room:RoomState,tool:String)->Array:
 	var result:Array=[]
 	for id in room.objects:
 		var object:Dictionary=room.objects[id]; var affordances:Array=object.get("supported_tools",[])
+		if tool=="drink" and id=="fridge" and not bool(object.get("state",false)):continue
+		if tool in ["use_pc","order_groceries"] and id=="pc" and not bool(object.get("state",false)):continue
+		if tool=="watch_tv" and id=="tv" and not bool(object.get("state",false)):continue
 		if tool=="move_near" or tool=="inspect":result.append(id); continue
 		if tool in ["move_object","rotate_object"] and bool(object.get("movable",false)):result.append(id); continue
 		if tool in ["open","turn_on"] and not bool(object.get("state",false)) and tool in affordances:result.append(id); continue
@@ -46,6 +64,7 @@ static func _item_targets(room:RoomState,tool:String)->Array:
 	for id in room.items:
 		var item:Dictionary=room.items[id]; var quantity:=int(item.get("quantity",1))
 		if quantity<=0 or str(item.get("location",""))=="consumed":continue
+		if tool=="pick_up" and str(item.get("container",""))=="fridge" and not bool(room.objects.get("fridge",{}).get("state",false)):continue
 		if tool=="pick_up" and bool(item.get("portable",false)) and str(item.get("location",""))!="held":result.append(id)
 		elif tool=="put_down" and str(item.get("location",""))=="held":result.append(id)
 		elif tool=="read" and str(item.get("type",""))=="book" and bool(item.get("properties",{}).get("readable",true)):result.append(id)

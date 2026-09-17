@@ -14,3 +14,6 @@ func load_state(data)->void:
 	if not data is Dictionary:return
 	var c=data.get("cell",[5,6]); if c is Array and c.size()>=2: current_cell=Vector2i(int(c[0]),int(c[1]))
 	next_cell=current_cell; held_item_id=str(data.get("held_item_id", "")); posture=str(data.get("posture","standing")); posture_target_id=str(data.get("posture_target_id","")); revision=int(data.get("revision",revision))
+
+func snapshot()->Dictionary:
+	return serialize()

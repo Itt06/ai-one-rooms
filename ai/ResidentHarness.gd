@@ -14,6 +14,8 @@ var _observation: Dictionary = {}
 var _candidates: Array = []
 var _room: RoomState
 var _goals: Array = []
+var _resident_snapshot: Dictionary = {}
+var _needs_snapshot: Dictionary = {}
 var _config: Dictionary = {}
 var _system_prompt := ""
 var _repair_attempted := false
@@ -27,13 +29,15 @@ func _ready() -> void:
 func is_busy() -> bool:
 	return client != null and client.is_busy()
 
-func request_decision(observation: Dictionary, candidates: Array, room: RoomState, goals: Array, config: Dictionary, system_prompt: String) -> bool:
+func request_decision(observation: Dictionary, candidates: Array, room: RoomState, goals: Array, config: Dictionary, system_prompt: String, resident_snapshot:Dictionary={}, needs_snapshot:Dictionary={}) -> bool:
 	if is_busy():
 		return false
 	_observation = observation.duplicate(true)
 	_candidates = candidates.duplicate(true)
 	_room = room
 	_goals = goals.duplicate(true)
+	_resident_snapshot = resident_snapshot.duplicate(true)
+	_needs_snapshot = needs_snapshot.duplicate(true)
 	_config = config.duplicate(true)
 	_system_prompt = system_prompt
 	if observation.get("available_skills",[]) is Array and observation.available_skills.is_empty():
@@ -80,9 +84,9 @@ func _validate_semantic(parsed:Dictionary)->Dictionary:
 	var goals:=ActionValidator.validate_goal_updates(parsed.get("goal_updates",{}),_goals)
 	if not bool(goals.get("ok",false)): return {"ok":false,"error":"goal_updates:%s"%str(goals.get("error","invalid"))}
 	if parsed.decision_type=="plan":
-		var resident:=ResidentState.new(); var cell=_observation.get("self",{}).get("cell",[5,6])
-		if cell is Array and cell.size()>=2: resident.current_cell=Vector2i(int(cell[0]),int(cell[1]))
-		return PlanPreflight.validate(parsed.plan,_room,resident,ResidentNeeds.new())
+		var resident:=ResidentState.new(); resident.load_state(_resident_snapshot)
+		var needs:=ResidentNeeds.new(); needs.load_snapshot(_needs_snapshot)
+		return PlanPreflight.validate(parsed.plan,_room,resident,needs)
 	var skill_id:=str(parsed.get("skill",{}).get("id",""))
 	for skill in _observation.get("available_skills",[]):
 		if str(skill.get("id",""))==skill_id:return {"ok":true}

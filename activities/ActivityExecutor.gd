@@ -21,6 +21,9 @@ func begin(id:String,target:String,why:String,room:RoomState,needs:ResidentNeeds
 	if definition.has("target_type"):
 		var target_data:Dictionary=room.objects.get(target,room.items.get(target,{}))
 		if str(target_data.get("type",""))!=str(definition.target_type): state=State.FAILED; return {"ok":false,"error":"target_type_mismatch"}
+	if definition.target_kind=="object" and not InteractionResolver.is_at_interaction_cell(room,target,resident.current_cell): state=State.FAILED; return {"ok":false,"error":"target_not_interactable_now"}
+	if id in ["use_pc","watch_tv","order_groceries"] and target in ["pc","tv"] and not bool(room.objects[target].get("state",false)): state=State.FAILED; return {"ok":false,"error":"target_is_off"}
+	if id=="drink" and target=="fridge" and not bool(room.objects[target].get("state",false)): state=State.FAILED; return {"ok":false,"error":"fridge_closed"}
 	activity_id=id; target_id=target; reason=why; remaining_minutes=float(definition.duration_minutes); before_needs=needs.values.duplicate(true); started_cell=resident.current_cell; state=State.STARTING
 	return {"ok":true,"state":"starting","activity":id,"target":target}
 
@@ -43,6 +46,8 @@ func complete(room:RoomState,needs:ResidentNeeds,resident:ResidentState,diary_te
 		if int(room.items.get(target_id,{}).get("quantity",0))<=0: resident.held_item_id=""
 	if activity_id=="clean": room.cleanliness=min(100.0,room.cleanliness+20.0)
 	if activity_id=="take_out_trash": room.resources["trash"]=0
+	if activity_id=="eat": room.resources["trash"]=int(room.resources.get("trash",0))+1
+	if activity_id=="order_groceries": room.resources["trash"]=int(room.resources.get("trash",0))+1
 	var result:Dictionary={"ok":true,"activity":activity_id,"target":target_id,"duration_minutes":float(definition.duration_minutes),"before_needs":before_needs,"after_needs":needs.values.duplicate(true),"result":"completed","location":[started_cell.x,started_cell.y]}
 	if activity_id=="write_diary": result["diary_text"]=diary_text
 	reset()

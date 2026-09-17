@@ -37,7 +37,7 @@ var plan_moving := false
 var plan_history := PlanHistory.new()
 var skill_store := SkillStore.new()
 var current_skill_id := ""
-var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"tool_frequency":{}}
+var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_completed":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"tool_frequency":{}}
 var decision_revision := 0
 
 func _ready() -> void:
@@ -103,7 +103,7 @@ func _request_decision() -> void:
 	status = "thinking"
 	validation_error = ""
 	decision_revision=_state_revision()
-	if not harness.request_decision(observation,candidates,room_state,goal_store.active_texts(),_config(),_prompt()):
+	if not harness.request_decision(observation,candidates,room_state,goal_store.active_texts(),_config(),_prompt(),resident_state.snapshot(),needs_model.snapshot()):
 		_fallback("LLM request could not start")
 
 func _on_plan_ready(plan:Array, why:String, updates:Dictionary, latency_ms:int, raw_response:String)->void:
@@ -183,6 +183,7 @@ func _finish_activity()->void:
 	if id=="write_diary":
 		diary.push_front({"time":clock.text(),"text":str(result.get("diary_text",diary_text)).left(500)})
 		if diary.size()>60:diary.resize(60)
+	diagnostics.activities_completed=int(diagnostics.get("activities_completed",0))+1
 	_record_history("activity_completed",id,target,reason)
 	DecisionLogger.append({"time":clock.text(),"action":id,"activity":id,"target":target,"reason":reason,"retrieved_memories":last_retrieved_memory_ids,"goals":goal_store.active_texts(),"latency_ms":last_latency_ms,"validation":"valid","result":"completed"})
 	_complete_plan_step(result)
