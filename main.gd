@@ -121,12 +121,12 @@ func _run_plan_step()->void:
 	var checked:=PrimitiveToolValidator.validate(step,room_state,room_state.grid,resident_data,room_state.items)
 	if not bool(checked.get("ok",false)):
 		validation_error=str(checked.get("error","tool rejected")); plan_executor.abort({"ok":false,"tool":step.get("tool",""),"error":validation_error}); status="idle"; decision_cooldown=0.5; return
-	var tool:=str(step.get("tool","")); var target:=str(step.get("target",step.get("args",{}).get("target","")))
+	var tool:=str(step.get("tool","")); var step_args:Dictionary=step.get("args",{}); var target:=str(step_args.get("target",""))
 	if tool=="move_near":
 		if not _begin_plan_move(target): plan_executor.abort({"ok":false,"tool":tool,"error":"target_unreachable"}); status="idle"; decision_cooldown=0.5
 		return
 	if tool=="move_to":
-		var args=step.get("args",{}); if not _begin_plan_move_cell(Vector2i(int(args.x),int(args.y))): plan_executor.abort({"ok":false,"tool":tool,"error":"destination_unreachable"}); status="idle"; decision_cooldown=0.5
+		var args:Dictionary=step.get("args",{}); if not _begin_plan_move_cell(Vector2i(int(args.x),int(args.y))): plan_executor.abort({"ok":false,"tool":tool,"error":"destination_unreachable"}); status="idle"; decision_cooldown=0.5
 		return
 	var result:=PrimitiveToolExecutor.execute(step,room_state,resident_state,needs_model); _complete_plan_step(result)
 

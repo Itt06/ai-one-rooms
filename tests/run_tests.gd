@@ -96,3 +96,7 @@ func _test_grid_and_primitives() -> void:
 	var plan:=PlanExecutor.new(); plan.begin([{"tool":"wait"}],"I want to pause.")
 	_check(plan.active and plan.current().get("tool","")=="wait", "plan should expose one current step")
 	_check(plan.advance({"ok":true}), "single-step plan should complete")
+	var canonical:=PrimitiveToolValidator.validate({"tool":"move_to","args":{"x":6,"y":4}},room,grid,{"current_cell":resident.current_cell,"held_item_id":""},room.items)
+	_check(bool(canonical.get("ok",false)), "canonical move_to should validate")
+	var legacy:=PrimitiveToolValidator.validate({"action":"move_to","target":"center","args":[6,4]},room,grid,{"current_cell":resident.current_cell,"held_item_id":""},room.items)
+	_check(not bool(legacy.get("ok",false)), "legacy primitive shape should be rejected")

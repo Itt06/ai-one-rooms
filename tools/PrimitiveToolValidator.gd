@@ -4,10 +4,11 @@ extends RefCounted
 static func validate(step, room: RoomState, grid: RoomGrid, resident: Dictionary, items: Dictionary) -> Dictionary:
 	if not step is Dictionary: return _fail("step_not_object")
 	var tool := str(step.get("tool","")); if not PrimitiveToolCatalog.TOOLS.has(tool): return _fail("unknown_tool")
-	var raw_args = step.get("args",{})
-	var target := str(step.get("target", raw_args.get("target", "") if raw_args is Dictionary else ""))
+	if step.has("action") or step.has("target") or not step.has("args") or not (step.args is Dictionary): return _fail("canonical_step_requires_tool_and_args_object")
+	var raw_args:Dictionary = step.args
+	var target := str(raw_args.get("target", ""))
 	if tool == "move_to":
-		var args = step.get("args",{}); if not args is Dictionary or not (args.get("x") is int) or not (args.get("y") is int): return _fail("cell_must_be_integer")
+		var args:Dictionary = step.args; if not (args.get("x") is int) or not (args.get("y") is int): return _fail("cell_must_be_integer")
 		var destination:=Vector2i(int(args.x),int(args.y)); if not grid.is_inside(destination) or not grid.find_path(resident.current_cell,destination).size(): return _fail("destination_unreachable")
 	if tool == "move_near" and not room.objects.has(target): return _fail("target_not_found")
 	if tool in ["pick_up","put_down","eat","read"] and not items.has(target): return _fail("item_not_found")

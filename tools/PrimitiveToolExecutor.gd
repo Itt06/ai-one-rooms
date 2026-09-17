@@ -2,7 +2,7 @@ class_name PrimitiveToolExecutor
 extends RefCounted
 
 static func execute(step:Dictionary, room:RoomState, resident:ResidentState, needs:ResidentNeeds)->Dictionary:
-	var tool:=str(step.get("tool","")); var raw_args=step.get("args",{}); var target:=str(step.get("target",raw_args.get("target","") if raw_args is Dictionary else ""))
+	var tool:=str(step.get("tool","")); var raw_args:Dictionary=step.get("args",{}); var target:=str(raw_args.get("target",""))
 	if tool=="pick_up": resident.held_item_id=target; room.items[target].location="resident"; room.items[target].held_by="resident"
 	elif tool=="put_down": room.items[target].location="room"; room.items[target].held_by=""; resident.held_item_id=""
 	elif tool=="sit": resident.posture="sitting"

@@ -47,7 +47,7 @@ func _on_client_completed(success: bool, content: String, raw_response: String, 
 		if plan is Array and plan.size() > 0 and plan.size() <= 6:
 			var valid_plan:=true
 			for step in plan:
-				if not step is Dictionary or not PrimitiveToolCatalog.TOOLS.has(str(step.get("tool",""))): valid_plan=false
+				if not step is Dictionary or not step.has("tool") or step.has("action") or step.has("target") or not step.has("args") or not (step.args is Dictionary) or not PrimitiveToolCatalog.TOOLS.has(str(step.get("tool",""))): valid_plan=false
 			if valid_plan:
 				plan_ready.emit(plan,str(parsed.get("reason","")),parsed.get("goal_updates",{}),latency_ms,raw_response); return
 			decision_failed.emit("Invalid short plan",latency_ms,raw_response); return
