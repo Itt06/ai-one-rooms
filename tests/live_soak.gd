@@ -7,7 +7,7 @@ func _initialize() -> void:
 	var args:=OS.get_cmdline_user_args()
 	for i in args.size():
 		if args[i]=="--decisions" and i+1<args.size(): target=max(1,int(args[i+1]))
-	var scene:=load("res://Main.tscn").instantiate(); get_root().add_child(scene)
+	var scene:Node=load("res://Main.tscn").instantiate(); get_root().add_child(scene)
 	var waited:=0.0
 	while waited<86400.0 and int(scene.diagnostics.get("total_decisions",0))<target:
 		await create_timer(1.0).timeout; waited+=1.0
