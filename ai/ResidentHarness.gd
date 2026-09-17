@@ -89,5 +89,10 @@ func _validate_semantic(parsed:Dictionary)->Dictionary:
 		return PlanPreflight.validate(parsed.plan,_room,resident,needs)
 	var skill_id:=str(parsed.get("skill",{}).get("id",""))
 	for skill in _observation.get("available_skills",[]):
-		if str(skill.get("id",""))==skill_id:return {"ok":true}
+		if str(skill.get("id",""))==skill_id:
+			var resident_skill:=ResidentState.new(); resident_skill.load_state(_resident_snapshot)
+			var needs_skill:=ResidentNeeds.new(); needs_skill.load_snapshot(_needs_snapshot)
+			var expanded:=SkillExecutor.expand(skill,_room)
+			if expanded.is_empty():return {"ok":false,"error":"skill_expansion_failed"}
+			return PlanPreflight.validate(expanded,_room,resident_skill,needs_skill)
 	return {"ok":false,"error":"unknown_skill"}

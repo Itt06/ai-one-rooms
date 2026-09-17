@@ -100,7 +100,7 @@ func _request_decision() -> void:
 	last_retrieved_memory_ids = []
 	for memory in memories:
 		last_retrieved_memory_ids.append(str(memory.get("id","")))
-	var available_skills:=skill_store.relevant(room_state,resident_state.held_item_id,needs_model.values)
+	var available_skills:=skill_store.relevant(room_state,resident_state.held_item_id,needs_model.values,resident_state)
 	var observation := ObservationBuilder.build(clock,needs_model,room_state,resident_state.render_position,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,{"habits":habit_store.summary()},{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},available_skills,_recent_behavior())
 	last_observation = JSON.stringify(observation)
 	status = "thinking"
