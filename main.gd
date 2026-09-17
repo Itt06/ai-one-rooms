@@ -40,7 +40,7 @@ var plan_moving := false
 var plan_history := PlanHistory.new()
 var skill_store := SkillStore.new()
 var current_skill_id := ""
-var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_completed":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"tool_frequency":{}}
+var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"tool_frequency":{}}
 var decision_revision := 0
 
 func _ready() -> void:
@@ -146,7 +146,8 @@ func _run_plan_step()->void:
 		return
 	if ActivityCatalog.DEFINITIONS.has(tool):
 		var started:=activity_executor.begin(tool,target,reason,room_state,needs_model,resident_state,_recent_activity_count(tool),float(preferences.values.get(tool,0.0)))
-		if not bool(started.get("ok",false)): _abort_plan(str(started.get("error","activity_failed"))); return
+		if not bool(started.get("ok",false)): diagnostics.activities_failed+=1; _abort_plan(str(started.get("error","activity_failed"))); return
+		diagnostics.activities_started+=1
 		status=activity_executor.state_name(); return
 	var result:=PrimitiveToolExecutor.execute(step,room_state,resident_state,needs_model)
 	if not bool(result.get("ok",false)):_abort_plan(str(result.get("error","primitive_failed"))); return
@@ -176,7 +177,7 @@ func _finish_activity()->void:
 	var id:=activity_executor.activity_id; var target:=activity_executor.target_id
 	var diary_text:=reason if id=="write_diary" else ""
 	var result:=activity_executor.complete(room_state,needs_model,resident_state,diary_text)
-	if not bool(result.get("ok",false)):_abort_plan(str(result.get("error","activity_failed"))); return
+	if not bool(result.get("ok",false)): diagnostics.activities_failed+=1; _abort_plan(str(result.get("error","activity_failed"))); return
 	var before:Dictionary=result.get("before_needs",{}); var after:Dictionary=result.get("after_needs",{}); var improvement:=0.0
 	for key in ["boredom","stress","discomfort","loneliness"]:improvement+=float(before.get(key,0.0))-float(after.get(key,0.0))
 	var event:=LifeEvent.activity_completed(clock.text(),id,target,activity_executor.started_cell,float(result.get("duration_minutes",0.0)),before,after,{"posture":resident_state.posture,"posture_target":resident_state.posture_target_id,"held_item":resident_state.held_item_id,"time_of_day":clock.snapshot().get("hour",0)},str(result.get("result","completed")))
@@ -222,6 +223,7 @@ func _check_interrupt() -> void:
 	if severe_thirst or severe_toilet or severe_sleep or severe_discomfort:
 		var interrupted := activity_executor.interrupt("A critical physical need interrupted the activity.")
 		if bool(interrupted.get("ok",false)):
+			diagnostics.activities_interrupted+=1
 			_record_history("interrupted",activity_executor.activity_id,activity_executor.target_id,str(interrupted.get("reason",""))); _abort_plan("activity_interrupted")
 
 func _fallback(message: String) -> void:

@@ -12,7 +12,7 @@ func _initialize() -> void:
 	var scene:Node=load("res://Main.tscn").instantiate(); get_root().add_child(scene)
 	var baseline_decisions:=int(scene.diagnostics.get("total_decisions",0))
 	var baseline:Dictionary={}
-	for key in ["plans_completed","plans_aborted","fallback_waits","schema_repair_attempts","semantic_repair_attempts","repair_recovered","repair_failed","skills_invoked","skills_completed","activities_completed"]: baseline[key]=int(scene.diagnostics.get(key,0))
+	for key in ["plans_completed","plans_aborted","fallback_waits","schema_repair_attempts","semantic_repair_attempts","repair_recovered","repair_failed","skills_invoked","skills_completed","activities_started","activities_completed","activities_failed","activities_interrupted"]: baseline[key]=int(scene.diagnostics.get(key,0))
 	print("Starting cumulative decisions: %d" % baseline_decisions)
 	print("Target new decisions: %d" % target)
 	var waited:=0.0
@@ -34,6 +34,9 @@ func _initialize() -> void:
 	print("Run-local plans completed: %d" % _delta(scene,"plans_completed",baseline))
 	print("Run-local plans aborted: %d" % _delta(scene,"plans_aborted",baseline))
 	print("Run-local activities completed: %d" % _delta(scene,"activities_completed",baseline))
+	print("Run-local activities started: %d" % _delta(scene,"activities_started",baseline))
+	print("Run-local activities failed: %d" % _delta(scene,"activities_failed",baseline))
+	print("Run-local activities interrupted: %d" % _delta(scene,"activities_interrupted",baseline))
 	print("Run-local fallback waits: %d" % _delta(scene,"fallback_waits",baseline))
 	print("Schema repair attempts: %d" % _delta(scene,"schema_repair_attempts",baseline))
 	print("Semantic repair attempts: %d" % _delta(scene,"semantic_repair_attempts",baseline))
