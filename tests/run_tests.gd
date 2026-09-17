@@ -7,6 +7,7 @@ func _initialize() -> void:
 	_test_candidates_and_validation()
 	_test_action_executor()
 	_test_memory_and_goals()
+	_test_grid_and_primitives()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -84,3 +85,14 @@ func _test_memory_and_goals() -> void:
 	_check("Finish the book" in goals.active_texts(), "goal should be active after add")
 	goals.apply({"add":[],"complete":["Finish the book"],"abandon":[]})
 	_check(not ("Finish the book" in goals.active_texts()), "completed goal should leave active set")
+
+func _test_grid_and_primitives() -> void:
+	var grid:=RoomGrid.new(); var room:=RoomState.new(); var resident:=ResidentState.new()
+	_check(grid.is_inside(Vector2i(0,0)) and not grid.is_inside(Vector2i(-1,0)), "grid bounds should be enforced")
+	var path:=grid.find_path(resident.current_cell,Vector2i(6,4),room.blocked_cells())
+	_check(not path.is_empty(), "walkable destination should have a path")
+	var invalid:=PrimitiveToolValidator.validate({"tool":"move_to","args":{"x":-1,"y":999}},room,grid,{"current_cell":resident.current_cell,"held_item_id":""},room.items)
+	_check(not bool(invalid.get("ok",false)), "invalid move_to should be rejected")
+	var plan:=PlanExecutor.new(); plan.begin([{"tool":"wait"}],"I want to pause.")
+	_check(plan.active and plan.current().get("tool","")=="wait", "plan should expose one current step")
+	_check(plan.advance({"ok":true}), "single-step plan should complete")

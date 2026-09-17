@@ -3,6 +3,7 @@ extends Node
 
 signal decision_ready(decision: Dictionary, latency_ms: int, raw_response: String)
 signal decision_failed(error_message: String, latency_ms: int, raw_response: String)
+signal plan_ready(plan: Array, reason: String, goal_updates: Dictionary, latency_ms: int, raw_response: String)
 
 var client: LLMClient
 var _observation: Dictionary = {}
@@ -41,6 +42,15 @@ func _on_client_completed(success: bool, content: String, raw_response: String, 
 		decision_failed.emit(error_message,latency_ms,raw_response)
 		return
 	var parsed = JSON.parse_string(content)
+	if parsed is Dictionary and parsed.has("plan"):
+		var plan = parsed.get("plan",[])
+		if plan is Array and plan.size() > 0 and plan.size() <= 6:
+			var valid_plan:=true
+			for step in plan:
+				if not step is Dictionary or not PrimitiveToolCatalog.TOOLS.has(str(step.get("tool",""))): valid_plan=false
+			if valid_plan:
+				plan_ready.emit(plan,str(parsed.get("reason","")),parsed.get("goal_updates",{}),latency_ms,raw_response); return
+			decision_failed.emit("Invalid short plan",latency_ms,raw_response); return
 	var validation := ActionValidator.validate(parsed,_candidates,_room,_goals)
 	if bool(validation.get("ok",false)):
 		decision_ready.emit(validation.get("decision",{}),latency_ms,raw_response)

@@ -134,3 +134,9 @@ The suite covers needs, candidate generation, invalid actions, action effects, m
 The simulation is intentionally small. There is currently no town, work, money, other autonomous NPCs, internet access, OS control, combat, or colony management.
 
 The design goal is not to script a productive routine. Needs are pressures rather than commands, `wait` is a valid choice, and habits/preferences are learned from the resident's own life.
+
+## Primitive plan extension
+
+The current branch adds `RoomGrid`, `ResidentState`, `PrimitiveToolCatalog`, `PrimitiveToolValidator`, `PrimitiveToolExecutor`, `PlanExecutor`, and `PlanHistory`. Ornith may return a short plan of up to six tools such as `move_near`, `pick_up`, `sit`, and `read`; each step is validated against the current authoritative world before the next step begins. `move_to` accepts integer grid cells only. Legacy high-level actions remain available as a compatibility path.
+
+Save schema version is now 3 and includes resident cell/posture/held item and bounded plan history. The project still intentionally excludes towns, jobs, money, internet, OS control, shell execution, and other autonomous NPCs.

@@ -1,7 +1,7 @@
 class_name SaveManager
 extends RefCounted
 
-const SAVE_VERSION := 2
+const SAVE_VERSION := 3
 const SAVE_PATH := "user://one_room_save.json"
 
 static func save_state(state: Dictionary) -> bool:

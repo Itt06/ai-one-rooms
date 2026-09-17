@@ -28,6 +28,11 @@ var goal_store := GoalStore.new()
 var preferences := PreferenceStore.new()
 var action_executor := ActionExecutor.new()
 var harness: ResidentHarness
+var resident_state := ResidentState.new()
+var resident_movement := ResidentMovement.new()
+var plan_executor := PlanExecutor.new()
+var plan_moving := false
+var plan_history := PlanHistory.new()
 
 func _ready() -> void:
 	_load_game()
@@ -35,6 +40,8 @@ func _ready() -> void:
 	add_child(harness)
 	harness.decision_ready.connect(_on_decision_ready)
 	harness.decision_failed.connect(_on_decision_failed)
+	harness.plan_ready.connect(_on_plan_ready)
+	resident_state.render_position = person_pos
 	_add_room_art()
 	_build_ui()
 	queue_redraw()
@@ -56,6 +63,13 @@ func _process(delta: float) -> void:
 			_finish_action()
 		else:
 			_check_interrupt()
+	if plan_executor.active and plan_moving and speed > 0.0:
+		if resident_movement.update(resident_state,delta,move_speed):
+			person_pos = resident_state.render_position
+			plan_moving = false
+			_complete_plan_step()
+	elif plan_executor.active and not plan_moving and not action_executor.is_active():
+		_run_plan_step()
 	decision_cooldown = max(0.0,decision_cooldown - delta)
 	if status == "idle" and decision_cooldown <= 0.0 and speed > 0.0:
 		_request_decision()
@@ -77,7 +91,7 @@ func _request_decision() -> void:
 	last_retrieved_memory_ids = []
 	for memory in memories:
 		last_retrieved_memory_ids.append(str(memory.get("id","")))
-	var observation := ObservationBuilder.build(clock,needs_model,room_state,person_pos,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,preferences.habit_summary())
+	var observation := ObservationBuilder.build(clock,needs_model,room_state,person_pos,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,preferences.habit_summary(),{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id})
 	last_observation = JSON.stringify(observation)
 	status = "thinking"
 	validation_error = ""
@@ -97,6 +111,42 @@ func _on_decision_ready(decision: Dictionary, latency_ms: int, raw_response: Str
 	pending_diary_text = normalized.get("diary_text",null)
 	var action: Dictionary = normalized.get("action",{})
 	_start_action(str(action.get("id","wait")),str(action.get("target","")),str(normalized.get("reason","")))
+
+func _on_plan_ready(plan:Array, why:String, updates:Dictionary, latency_ms:int, raw_response:String)->void:
+	last_latency_ms=latency_ms; last_response=raw_response; goal_store.apply(updates); reason=why if why!="" else "I am deciding what to do."; plan_executor.begin(plan,reason); status="acting"; _record_history("plan_started",plan_executor.plan_id,"",reason); _run_plan_step()
+
+func _run_plan_step()->void:
+	if not plan_executor.active:return
+	var step:=plan_executor.current(); var resident_data={"current_cell":resident_state.current_cell,"held_item_id":resident_state.held_item_id}
+	var checked:=PrimitiveToolValidator.validate(step,room_state,room_state.grid,resident_data,room_state.items)
+	if not bool(checked.get("ok",false)):
+		validation_error=str(checked.get("error","tool rejected")); plan_executor.abort({"ok":false,"tool":step.get("tool",""),"error":validation_error}); status="idle"; decision_cooldown=0.5; return
+	var tool:=str(step.get("tool","")); var target:=str(step.get("target",step.get("args",{}).get("target","")))
+	if tool=="move_near":
+		if not _begin_plan_move(target): plan_executor.abort({"ok":false,"tool":tool,"error":"target_unreachable"}); status="idle"; decision_cooldown=0.5
+		return
+	if tool=="move_to":
+		var args=step.get("args",{}); if not _begin_plan_move_cell(Vector2i(int(args.x),int(args.y))): plan_executor.abort({"ok":false,"tool":tool,"error":"destination_unreachable"}); status="idle"; decision_cooldown=0.5
+		return
+	var result:=PrimitiveToolExecutor.execute(step,room_state,resident_state,needs_model); _complete_plan_step(result)
+
+func _begin_plan_move(object_id:String)->bool:
+	if not room_state.objects.has(object_id):return false
+	var cells:Array=room_state.objects[object_id].get("interaction_cells",[]); if cells.is_empty():return false
+	return _begin_plan_move_cell(cells[0])
+
+func _begin_plan_move_cell(destination:Vector2i)->bool:
+	if not resident_movement.begin(room_state.grid,resident_state.current_cell,destination,room_state.blocked_cells()):return false
+	plan_moving=true; status="moving"; return true
+
+func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->void:
+	var done:=plan_executor.advance(result)
+	if done:
+		plan_history.add(plan_executor.plan_id,plan_executor.reason,plan_executor.plan,plan_executor.results,true,clock.text(),clock.text())
+		memory_store.add(clock.text(),"plan", "I followed a plan: %s." % ", ".join(plan_executor.plan.map(func(step): return str(step.get("tool","")))),"completed",0.55,[],needs_model.values)
+		_record_history("plan_completed",plan_executor.plan_id,"",reason); status="idle"; decision_cooldown=0.5; _save_game()
+	else:
+		status="acting"; _run_plan_step()
 
 func _on_decision_failed(error_message: String, latency_ms: int, raw_response: String) -> void:
 	last_latency_ms = latency_ms
@@ -209,6 +259,8 @@ func _save_game() -> void:
 		"preferences":preferences.serialize(),
 		"diary":diary,
 		"decision_history":decision_history,
+		"resident_state":resident_state.serialize(),
+		"plan_history":plan_history.serialize(),
 		"resident_position":[person_pos.x,person_pos.y]
 	})
 
@@ -237,6 +289,8 @@ func _load_game() -> void:
 	if loaded_history is Array: decision_history = loaded_history.duplicate(true)
 	var p = data.get("resident_position",[420.0,390.0])
 	if p is Array and p.size() >= 2: person_pos = Vector2(float(p[0]),float(p[1]))
+	resident_state.load_state(data.get("resident_state",{})); resident_state.render_position=person_pos
+	plan_history.load_state(data.get("plan_history",[]))
 
 func _add_room_art() -> void:
 	var texture := load("res://assets/room_background.png") as Texture2D

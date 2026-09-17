@@ -1,14 +1,17 @@
 class_name ObservationBuilder
 extends RefCounted
 
-static func build(clock: WorldClock, needs: ResidentNeeds, room: RoomState, position: Vector2, action: String, memories: Array, goals: Array, preferences: Dictionary, candidates: Array, habits := {}) -> Dictionary:
+static func build(clock: WorldClock, needs: ResidentNeeds, room: RoomState, position: Vector2, action: String, memories: Array, goals: Array, preferences: Dictionary, candidates: Array, habits := {}, resident := {}) -> Dictionary:
 	return {
 		"time": clock.snapshot(),
 		"self": {
 			"needs": needs.values.duplicate(true),
 			"current_action": action,
 			"location": "room",
-			"position_label": _position_label(position, room)
+			"position_label": _position_label(position, room),
+			"cell": [int(resident.get("cell",Vector2i(5,6)).x),int(resident.get("cell",Vector2i(5,6)).y)],
+			"posture": str(resident.get("posture","standing")),
+			"held_item": resident.get("held_item_id",null)
 		},
 		"room": {
 			"cleanliness": room.cleanliness,
@@ -17,11 +20,14 @@ static func build(clock: WorldClock, needs: ResidentNeeds, room: RoomState, posi
 		},
 		"visible_objects": room.visible_objects(),
 		"resources": room.resources.duplicate(true),
+		"items": room.items.values().duplicate(true),
 		"active_goals": goals.duplicate(true),
 		"relevant_memories": memories.duplicate(true),
 		"learned_preferences": preferences.duplicate(true),
 		"habits": habits.duplicate(true) if habits is Dictionary else {},
-		"available_actions": candidates.duplicate(true)
+		"available_actions": candidates.duplicate(true),
+		"available_tools": PrimitiveToolCatalog.available(room,resident),
+		"grid": {"size":[RoomGrid.WIDTH,RoomGrid.HEIGHT],"zones":{"center":"central open floor","bed_area":"resting area","desk_area":"work area","window_side":"window side","bathroom_area":"washroom","kitchen_area":"kitchen"}}
 	}
 
 static func _position_label(position: Vector2, room: RoomState) -> String:
