@@ -1,7 +1,58 @@
 class_name PreferenceStore
 extends RefCounted
-var values := {}
-var counts := {}
-func record(action: String, improvement: float) -> void:
-	counts[action] = int(counts.get(action, 0)) + 1; values[action] = clamp(float(values.get(action, 0.0)) + improvement, -1.0, 1.0)
-func summary() -> Dictionary: return values
+
+var values: Dictionary = {}
+var counts: Dictionary = {}
+var recent_actions: Array = []
+var sleep_hours: Array = []
+
+func record(action: String, improvement: float, hour := -1) -> void:
+	counts[action] = int(counts.get(action, 0)) + 1
+	values[action] = clamp(float(values.get(action, 0.0)) + improvement, -1.0, 1.0)
+	recent_actions.push_front(action)
+	if recent_actions.size() > 12:
+		recent_actions.resize(12)
+	if action == "sleep" and hour >= 0:
+		sleep_hours.push_front(hour)
+		if sleep_hours.size() > 14:
+			sleep_hours.resize(14)
+
+func summary() -> Dictionary:
+	var top := values.keys()
+	top.sort_custom(func(a, b): return abs(float(values[a])) > abs(float(values[b])))
+	var compact := {}
+	for key in top.slice(0, min(6, top.size())):
+		compact[key] = snapped(float(values[key]), 0.01)
+	return compact
+
+func habit_summary() -> Dictionary:
+	var usual_sleep_hour = null
+	if not sleep_hours.is_empty():
+		var total := 0.0
+		for hour in sleep_hours:
+			total += float(hour)
+		usual_sleep_hour = int(round(total / sleep_hours.size()))
+	return {
+		"recent_actions": recent_actions.duplicate(),
+		"action_counts": counts.duplicate(true),
+		"usual_sleep_hour": usual_sleep_hour
+	}
+
+func serialize() -> Dictionary:
+	return {"values": values.duplicate(true), "counts": counts.duplicate(true), "recent_actions": recent_actions.duplicate(), "sleep_hours": sleep_hours.duplicate()}
+
+func load_state(data) -> void:
+	values = {}
+	counts = {}
+	recent_actions = []
+	sleep_hours = []
+	if not (data is Dictionary):
+		return
+	if data.get("values", {}) is Dictionary:
+		values = data.values.duplicate(true)
+	if data.get("counts", {}) is Dictionary:
+		counts = data.counts.duplicate(true)
+	if data.get("recent_actions", []) is Array:
+		recent_actions = data.recent_actions.duplicate()
+	if data.get("sleep_hours", []) is Array:
+		sleep_hours = data.sleep_hours.duplicate()
