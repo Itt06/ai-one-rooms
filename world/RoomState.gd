@@ -42,10 +42,11 @@ func _setup_affordances() -> void:
 	for id in affordances: objects[id]["supported_tools"] = affordances[id]
 
 func advance(minutes: float) -> void:
-	cleanliness = clamp(cleanliness - minutes * 0.006, 0.0, 100.0)
+	# A lived-in room degrades over days, not in a single afternoon.
+	cleanliness = clamp(cleanliness - minutes * 0.001, 0.0, 100.0)
 	var trash := float(resources.get("trash",0))
 	if trash > 0.0:
-		cleanliness = clamp(cleanliness - minutes * 0.002 * min(trash,10.0),0.0,100.0)
+		cleanliness = clamp(cleanliness - minutes * 0.0003 * min(trash,10.0),0.0,100.0)
 
 func item_quantity(item_type:String)->int:
 	var total:=0

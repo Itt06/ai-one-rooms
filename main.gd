@@ -40,7 +40,7 @@ var plan_moving := false
 var plan_history := PlanHistory.new()
 var skill_store := SkillStore.new()
 var current_skill_id := ""
-var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"activity_types_requested":{},"primitive_only_plans":0,"plans_with_activity":0,"activity_interruption_reasons":{},"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"tool_frequency":{}}
+var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"activity_types_requested":{},"activity_interruption_reasons":{},"primitive_only_plans":0,"plans_with_activity":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"food_consumed":0,"groceries_ordered":0,"trash_generated":0,"trash_removed":0,"cleaning_activities":0,"sleep_completed":0,"tool_frequency":{}}
 var decision_revision := 0
 
 func _ready() -> void:
@@ -67,7 +67,7 @@ func _process(delta: float) -> void:
 		needs_model.advance(elapsed_minutes)
 		room_state.advance(elapsed_minutes)
 		if room_state.cleanliness < 40.0:
-			needs_model.apply({"discomfort":elapsed_minutes * 0.01})
+			needs_model.apply({"discomfort":elapsed_minutes * 0.001})
 	if activity_executor.is_active() and speed > 0.0:
 		var activity_update:=activity_executor.update(elapsed_minutes)
 		status=str(activity_update.get("state",status))
@@ -197,6 +197,12 @@ func _finish_activity()->void:
 		diary.push_front({"time":clock.text(),"text":str(result.get("diary_text",diary_text)).left(500)})
 		if diary.size()>60:diary.resize(60)
 	diagnostics.activities_completed=int(diagnostics.get("activities_completed",0))+1
+	if id=="eat": diagnostics.food_consumed=int(diagnostics.get("food_consumed",0))+1
+	if id=="order_groceries": diagnostics.groceries_ordered=int(diagnostics.get("groceries_ordered",0))+1
+	if id in ["eat","order_groceries"]: diagnostics.trash_generated=int(diagnostics.get("trash_generated",0))+1
+	if id=="take_out_trash": diagnostics.trash_removed=int(diagnostics.get("trash_removed",0))+1
+	if id=="clean": diagnostics.cleaning_activities=int(diagnostics.get("cleaning_activities",0))+1
+	if id=="sleep": diagnostics.sleep_completed=int(diagnostics.get("sleep_completed",0))+1
 	_record_history("activity_completed",id,target,reason)
 	DecisionLogger.append({"time":clock.text(),"action":id,"activity":id,"target":target,"reason":reason,"retrieved_memories":last_retrieved_memory_ids,"goals":goal_store.active_texts(),"latency_ms":last_latency_ms,"validation":"valid","result":"completed"})
 	_complete_plan_step(result)
