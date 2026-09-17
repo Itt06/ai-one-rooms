@@ -14,12 +14,9 @@ static func validate(decision, candidates: Array, room: RoomState, existing_goal
 	var target_id := str(decision.action.get("target", ""))
 	if action_id == "":
 		return _fail("Missing action id")
-	var candidate := _candidate_for(action_id, candidates)
+	var candidate := _candidate_for(action_id, target_id, candidates)
 	if candidate.is_empty():
-		return _fail("Action is not currently available")
-	var expected_target := str(candidate.get("target_id", ""))
-	if expected_target != target_id:
-		return _fail("Target is not allowed for this action")
+		return _fail("Action/target pair is not currently available")
 	if target_id != "" and not room.objects.has(target_id):
 		return _fail("Target does not exist")
 	if target_id != "":
@@ -33,12 +30,21 @@ static func validate(decision, candidates: Array, room: RoomState, existing_goal
 	if action_id == "read_book" and int(room.resources.get("book", 0)) <= 0:
 		return _fail("No book available")
 	var goal_result := validate_goal_updates(decision.get("goal_updates", {}), existing_goals)
-	if not goal_result.ok:
+	if not bool(goal_result.get("ok", false)):
 		return goal_result
 	var reason := str(decision.get("reason", "")).strip_edges()
 	if reason.length() > MAX_REASON_LENGTH:
 		reason = reason.left(MAX_REASON_LENGTH)
-	return {"ok": true, "error": "", "decision": {"action": {"id": action_id, "target": target_id}, "reason": reason, "goal_updates": goal_result.updates, "diary_text": decision.get("diary_text", null)}}
+	return {
+		"ok": true,
+		"error": "",
+		"decision": {
+			"action": {"id": action_id, "target": target_id},
+			"reason": reason,
+			"goal_updates": goal_result.get("updates", {"add": [], "complete": [], "abandon": []}),
+			"diary_text": decision.get("diary_text", null)
+		}
+	}
 
 static func validate_goal_updates(raw_updates, existing_goals: Array) -> Dictionary:
 	if not (raw_updates is Dictionary):
@@ -53,20 +59,20 @@ static func validate_goal_updates(raw_updates, existing_goals: Array) -> Diction
 			if text == "" or text.length() > MAX_GOAL_LENGTH:
 				return _fail("Invalid goal text")
 			if key == "add":
-				if text in existing_goals or text in normalized.add:
+				if text in existing_goals or text in normalized["add"]:
 					continue
-				if existing_goals.size() + normalized.add.size() >= MAX_GOALS:
+				if existing_goals.size() + normalized["add"].size() >= MAX_GOALS:
 					return _fail("Too many active goals")
-				normalized.add.append(text)
+				normalized["add"].append(text)
 			else:
 				if text not in existing_goals:
 					return _fail("Cannot update an unknown goal")
 				normalized[key].append(text)
 	return {"ok": true, "error": "", "updates": normalized}
 
-static func _candidate_for(action_id: String, candidates: Array) -> Dictionary:
+static func _candidate_for(action_id: String, target_id: String, candidates: Array) -> Dictionary:
 	for candidate in candidates:
-		if candidate is Dictionary and str(candidate.get("id", "")) == action_id:
+		if candidate is Dictionary and str(candidate.get("id", "")) == action_id and str(candidate.get("target_id", "")) == target_id:
 			return candidate
 	return {}
 
