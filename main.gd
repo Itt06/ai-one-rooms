@@ -29,6 +29,7 @@ var memory_store := MemoryStore.new()
 var goal_store := GoalStore.new()
 var preferences := PreferenceStore.new()
 var habit_store := HabitStore.new()
+var recent_activity_history:Array=[]
 var activity_executor := ActivityExecutor.new()
 var harness: ResidentHarness
 var resident_state := ResidentState.new()
@@ -143,7 +144,7 @@ func _run_plan_step()->void:
 		var args:Dictionary=step.get("args",{}); if not _begin_plan_move_cell(Vector2i(int(args.x),int(args.y))): _abort_plan("destination_unreachable")
 		return
 	if ActivityCatalog.DEFINITIONS.has(tool):
-		var started:=activity_executor.begin(tool,target,reason,room_state,needs_model,resident_state)
+		var started:=activity_executor.begin(tool,target,reason,room_state,needs_model,resident_state,_recent_activity_count(tool),float(preferences.values.get(tool,0.0)))
 		if not bool(started.get("ok",false)): _abort_plan(str(started.get("error","activity_failed"))); return
 		status=activity_executor.state_name(); return
 	var result:=PrimitiveToolExecutor.execute(step,room_state,resident_state,needs_model)
@@ -180,6 +181,8 @@ func _finish_activity()->void:
 	var event:=LifeEvent.activity_completed(clock.text(),id,target,activity_executor.started_cell,float(result.get("duration_minutes",0.0)),before,after,{"posture":resident_state.posture,"posture_target":resident_state.posture_target_id,"held_item":resident_state.held_item_id,"time_of_day":clock.snapshot().get("hour",0)},str(result.get("result","completed")))
 	event["time_hour"]=int(clock.snapshot().get("hour",0)); event["salience"]=clamp(0.35+abs(improvement)/100.0,0.35,0.9)
 	preferences.record_life_event(event)
+	recent_activity_history.push_front(id)
+	if recent_activity_history.size()>16: recent_activity_history.resize(16)
 	habit_store.record(event)
 	memory_store.add_life_event(event)
 	if id=="write_diary":
@@ -250,6 +253,13 @@ func _record_history(event: String, action: String, target: String, why: String)
 	decision_history.push_front({"time":clock.text(),"event":event,"action":action,"target":target,"reason":why})
 	if decision_history.size() > 50: decision_history.resize(50)
 
+func _recent_activity_count(activity:String)->int:
+	var count:=0
+	for item in recent_activity_history:
+		if str(item)==activity: count+=1
+		else: break
+	return count
+
 func _prompt() -> String:
 	var file := FileAccess.open("res://ai/prompts/resident_system_prompt.txt",FileAccess.READ)
 	return file.get_as_text() if file else "Choose one available action and return JSON only."
@@ -269,6 +279,7 @@ func _save_game() -> void:
 		"goal_store":goal_store.serialize(),
 		"preferences":preferences.serialize(),
 		"habits":habit_store.serialize(),
+		"recent_activity_history":recent_activity_history.duplicate(),
 		"diary":diary,
 		"decision_history":decision_history,
 		"resident_state":resident_state.serialize(),
@@ -293,6 +304,8 @@ func _load_game() -> void:
 	goal_store.load_state(data.get("goal_store",{}))
 	preferences.load_state(data.get("preferences",{}))
 	habit_store.load_state(data.get("habits",{}))
+	recent_activity_history=data.get("recent_activity_history",[]) if data.get("recent_activity_history",[]) is Array else []
+	if recent_activity_history.size()>16:recent_activity_history.resize(16)
 	var loaded_diary = data.get("diary",[])
 	if loaded_diary is Array: diary = loaded_diary.duplicate(true)
 	var loaded_history = data.get("decision_history",[])
