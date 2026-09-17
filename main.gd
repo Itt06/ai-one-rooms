@@ -40,7 +40,7 @@ var plan_moving := false
 var plan_history := PlanHistory.new()
 var skill_store := SkillStore.new()
 var current_skill_id := ""
-var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"tool_frequency":{}}
+var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"activity_types_requested":{},"primitive_only_plans":0,"plans_with_activity":0,"activity_interruption_reasons":{},"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"tool_frequency":{}}
 var decision_revision := 0
 
 func _ready() -> void:
@@ -91,7 +91,7 @@ func _request_decision() -> void:
 	var candidates:Array=[]
 	diagnostics.total_decisions+=1
 	var action_ids: Array = []
-	for candidate in PrimitiveToolCatalog.available(room_state,{"held_item_id":resident_state.held_item_id}): action_ids.append(str(candidate.get("tool","")))
+	for candidate in PrimitiveToolCatalog.available(room_state,{"current_cell":resident_state.current_cell,"held_item_id":resident_state.held_item_id}): action_ids.append(str(candidate.get("tool","")))
 	var strong_needs: Array = []
 	for key in needs_model.values:
 		if float(needs_model.values.get(key,0.0)) >= 70.0:
@@ -128,6 +128,11 @@ func _accept_plan(plan:Array, why:String, updates:Dictionary, skill_id:String)->
 	if not bool(preflight.get("ok",false)):
 		diagnostics.semantic_rejections+=1; _fallback("Plan preflight failed: %s"%str(preflight.get("error","unknown"))); return
 	goal_store.apply(goal_result.get("updates",{}),clock.text()); current_skill_id=skill_id; if skill_id!="":diagnostics.skills_invoked+=1
+	if skill_id=="":
+		var has_activity:=false
+		for plan_step in plan:
+			if ActivityCatalog.DEFINITIONS.has(str(plan_step.get("tool",""))): has_activity=true; break
+		diagnostics["plans_with_activity" if has_activity else "primitive_only_plans"]+=1
 	reason=why if why!="" else "I am deciding what to do."; plan_executor.begin(plan,reason); diagnostics.plans_started+=1; status="acting"; _record_history("plan_started",plan_executor.plan_id,"",reason); _run_plan_step()
 
 func _run_plan_step()->void:
@@ -145,6 +150,7 @@ func _run_plan_step()->void:
 		var args:Dictionary=step.get("args",{}); if not _begin_plan_move_cell(Vector2i(int(args.x),int(args.y))): _abort_plan("destination_unreachable")
 		return
 	if ActivityCatalog.DEFINITIONS.has(tool):
+		var requested:Dictionary=diagnostics.get("activity_types_requested",{}); requested[tool]=int(requested.get(tool,0))+1; diagnostics["activity_types_requested"]=requested
 		var started:=activity_executor.begin(tool,target,reason,room_state,needs_model,resident_state,_recent_activity_count(tool),float(preferences.values.get(tool,0.0)))
 		if not bool(started.get("ok",false)): diagnostics.activities_failed+=1; _abort_plan(str(started.get("error","activity_failed"))); return
 		diagnostics.activities_started+=1
@@ -221,6 +227,8 @@ func _check_interrupt() -> void:
 	var severe_sleep := float(needs_model.values.get("sleepiness",0.0)) >= 99.0 and activity_executor.activity_id != "sleep"
 	var severe_discomfort := float(needs_model.values.get("discomfort",0.0)) >= 98.0
 	if severe_thirst or severe_toilet or severe_sleep or severe_discomfort:
+		var interruption_reason:="severe_need"
+		var reasons:Dictionary=diagnostics.get("activity_interruption_reasons",{}); reasons[interruption_reason]=int(reasons.get(interruption_reason,0))+1; diagnostics["activity_interruption_reasons"]=reasons
 		var interrupted := activity_executor.interrupt("A critical physical need interrupted the activity.")
 		if bool(interrupted.get("ok",false)):
 			diagnostics.activities_interrupted+=1

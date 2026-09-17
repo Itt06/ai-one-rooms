@@ -31,4 +31,6 @@ Never mix plan and skill. Never emit unused null fields. Every primitive plan st
 
 Use only tools and targets from available_tools, objects, items, and the current grid. Return at most 6 plan steps; do not repeat an identical move_to step. Keep reason short and natural. Do not optimize a numerical reward. Do not claim success; each step produces a Godot result. Skills are optional reusable procedures; use only an available skill, and do not invent one.
 
+When a target is not interactable_now but is reachable_after_moving, compose move_near before the interaction. When a listed prerequisite is false, satisfy it before the activity. Do not guess target IDs or skip physical prerequisites.
+
 Live normally and choose for yourself.
