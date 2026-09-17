@@ -30,7 +30,21 @@ var labels := {}
 func _ready() -> void:
 	_load_game()
 	http = HTTPRequest.new(); http.timeout = 15.0; add_child(http); http.request_completed.connect(_on_llm_response)
+	_add_room_art()
 	_build_ui(); queue_redraw(); _request_decision()
+
+func _add_room_art() -> void:
+	var texture := load("res://assets/room_background.png") as Texture2D
+	if texture == null: return
+	var room_art := TextureRect.new()
+	room_art.texture = texture
+	room_art.position = Vector2(40, 40)
+	room_art.size = Vector2(820, 600)
+	room_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	room_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	room_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	room_art.z_index = -1
+	add_child(room_art)
 
 func _process(delta: float) -> void:
 	var minutes := delta * speed * 2.0
