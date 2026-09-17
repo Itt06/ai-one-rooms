@@ -4,6 +4,7 @@ var http:HTTPRequest
 var scenarios=["relevant_memory","learned_preference","established_habit","relevant_skill","goal_vs_need","satiation","failed_call_friend_memory","neutral"]
 const SCENARIO_TIMEOUT:=60.0
 const TOTAL_TIMEOUT:=540.0
+var totals:Dictionary={"json":0,"schema":0,"semantic":0,"first_accepted":0,"schema_repairs":0,"semantic_repairs":0,"recovered":0,"repair_failed":0,"accepted":0,"rejected":0,"timeouts":0}
 
 func _initialize()->void:
 	var requested:=OS.get_cmdline_user_args(); for i in requested.size():
@@ -14,7 +15,9 @@ func _initialize()->void:
 		if float(Time.get_ticks_msec()-total_started)/1000.0>=TOTAL_TIMEOUT: print("BENCHMARK_TOTAL_TIMEOUT"); quit(1); return
 		print("[%d/%d] %s: requesting"%[i+1,scenarios.size(),scenarios[i]])
 		await _run_scenario(str(scenarios[i]),i+1)
-	print("All scenarios terminated"); quit(0)
+	print("All scenarios terminated")
+	for key in totals:print("%s: %d"%[key,int(totals[key])])
+	quit(0 if int(totals.timeouts)==0 else 1)
 
 func _models()->bool:
 	if http.request("http://127.0.0.1:8000/v1/models")!=OK:return false
@@ -26,11 +29,12 @@ func _run_scenario(name:String,index:int=0)->void:
 	_configure(name,room,resident,needs,memory,prefs,habits,goals,skills)
 	var available:=PrimitiveToolCatalog.available(room,{"current_cell":resident.current_cell,"held_item_id":resident.held_item_id}); var ids:Array=[]; for item in available:ids.append(str(item.get("tool","")))
 	var observation:=ObservationBuilder.build(WorldClock.new(),needs,room,resident.render_position,"idle",memory.retrieve(ids,goals.active_texts(),6,"",[]),goals.active_texts(),prefs.summary(),[],{"habits":habits.summary()},{"cell":resident.current_cell,"posture":resident.posture,"held_item_id":resident.held_item_id},skills.relevant(room,resident.held_item_id,needs.values,resident),{"scenario":name})
-	var harness:=ResidentHarness.new(); root.add_child(harness); var state:Dictionary={"done":false,"accepted":false,"repairs":0,"recovered":0,"failure":""}
+	var harness:=ResidentHarness.new(); root.add_child(harness); var state:Dictionary={"done":false,"accepted":false,"repairs":0,"recovered":0,"repair_failed":0,"failure":"","first":{"json":false,"schema":false,"semantic":false}}
+	harness.validation_observed.connect(func(stage,ok,is_repair):if not is_repair:state.first[stage]=ok)
 	harness.validation_failed.connect(func(kind,error,is_repair): print("[%d/8] %s: validation_failed kind=%s repair=%s error=%s"%[index,name,kind,is_repair,error]))
-	harness.repair_attempted.connect(func(kind):state["repairs"]+=1; print("[%d/8] %s: repair %s"%[index,name,kind]))
+	harness.repair_attempted.connect(func(kind):state["repairs"]+=1;totals["%s_repairs"%kind]+=1; print("[%d/8] %s: repair %s"%[index,name,kind]))
 	harness.repair_recovered.connect(func():state["recovered"]+=1)
-	harness.repair_failed.connect(func():print("[%d/8] %s: repair failed"%[index,name]))
+	harness.repair_failed.connect(func():state["repair_failed"]+=1; print("[%d/8] %s: repair failed"%[index,name]))
 	harness.plan_ready.connect(func(_p,_r,_g,_l,_raw):state["accepted"]=true;state["done"]=true; print("[%d/8] %s: accepted plan"%[index,name]))
 	harness.skill_ready.connect(func(_id,_r,_g,_l,_raw):state["accepted"]=true;state["done"]=true; print("[%d/8] %s: accepted skill"%[index,name]))
 	harness.decision_failed.connect(func(error,_l,_raw):state["failure"]=error;state["done"]=true; print("[%d/8] %s: final failure %s"%[index,name,error]))
@@ -38,6 +42,12 @@ func _run_scenario(name:String,index:int=0)->void:
 	var waited:=0.0
 	while not bool(state["done"]) and waited<SCENARIO_TIMEOUT:await create_timer(0.25).timeout;waited+=0.25
 	if not bool(state["done"]): state["failure"]="BENCHMARK_TIMEOUT"; print("[%d/8] %s: BENCHMARK_TIMEOUT after %.0fs harness_busy=%s"%[index,name,SCENARIO_TIMEOUT,harness.is_busy()])
+	for stage in ["json","schema","semantic"]:if bool(state.first[stage]):totals[stage]+=1
+	if bool(state["accepted"]):totals.accepted+=1
+	else:totals.rejected+=1
+	if bool(state["accepted"]) and int(state["repairs"])==0:totals.first_accepted+=1
+	totals.recovered+=int(state.recovered);totals.repair_failed+=int(state.repair_failed)
+	if state.failure=="BENCHMARK_TIMEOUT":totals.timeouts+=1
 	print("%s: final_accepted=%s repair_attempts=%d recovered=%d failure=%s"%[name,state["accepted"],state["repairs"],state["recovered"],state["failure"]]); harness.queue_free(); await process_frame
 
 func _configure(name:String,room:RoomState,resident:ResidentState,needs:ResidentNeeds,memory:MemoryStore,prefs:PreferenceStore,habits:HabitStore,goals:GoalStore,skills:SkillStore)->void:

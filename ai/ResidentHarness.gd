@@ -9,6 +9,7 @@ signal repair_attempted(kind: String)
 signal repair_recovered()
 signal repair_failed()
 signal validation_failed(kind: String, error: String, is_repair_response: bool)
+signal validation_observed(stage: String, ok: bool, is_repair_response: bool)
 
 var client: LLMClient
 var _observation: Dictionary = {}
@@ -53,9 +54,16 @@ func _on_client_completed(success: bool, content: String, raw_response: String, 
 		decision_failed.emit(error_message,latency_ms,raw_response)
 		return
 	var parsed = JSON.parse_string(content)
+	if not parsed is Dictionary:
+		validation_observed.emit("json",false,_repair_attempted)
+		_handle_invalid("schema","malformed_json",latency_ms,raw_response)
+		return
+	validation_observed.emit("json",true,_repair_attempted)
 	var schema:=DecisionSchema.validate(parsed)
+	validation_observed.emit("schema",bool(schema.get("ok",false)),_repair_attempted)
 	if bool(schema.get("ok",false)):
 		var semantic:=_validate_semantic(parsed)
+		validation_observed.emit("semantic",bool(semantic.get("ok",false)),_repair_attempted)
 		if not bool(semantic.get("ok",false)):
 			_handle_invalid("semantic",str(semantic.get("error","plan is not executable")),latency_ms,raw_response)
 			return
