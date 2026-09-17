@@ -4,6 +4,7 @@ extends RefCounted
 const MAX_REASON_LENGTH := 200
 const MAX_GOALS := 5
 const MAX_GOAL_LENGTH := 160
+const MAX_DIARY_LENGTH := 500
 
 static func validate(decision, candidates: Array, room: RoomState, existing_goals: Array) -> Dictionary:
 	if not (decision is Dictionary):
@@ -25,8 +26,8 @@ static func validate(decision, candidates: Array, room: RoomState, existing_goal
 			return _fail("Target does not support this action")
 	if action_id == "eat_food" and int(room.resources.get("simple_food", 0)) <= 0:
 		return _fail("No food available")
-	if action_id == "drink_water" and int(room.resources.get("water", 0)) <= 0:
-		return _fail("No water available")
+	if action_id == "drink_water" and target_id == "fridge" and int(room.resources.get("water", 0)) <= 0:
+		return _fail("No bottled water available")
 	if action_id == "read_book" and int(room.resources.get("book", 0)) <= 0:
 		return _fail("No book available")
 	var goal_result := validate_goal_updates(decision.get("goal_updates", {}), existing_goals)
@@ -35,6 +36,12 @@ static func validate(decision, candidates: Array, room: RoomState, existing_goal
 	var reason := str(decision.get("reason", "")).strip_edges()
 	if reason.length() > MAX_REASON_LENGTH:
 		reason = reason.left(MAX_REASON_LENGTH)
+	var diary_text = decision.get("diary_text", null)
+	if action_id != "write_diary":
+		diary_text = null
+	elif diary_text != null:
+		var diary_string := str(diary_text).strip_edges()
+		diary_text = diary_string.left(MAX_DIARY_LENGTH) if diary_string != "" else null
 	return {
 		"ok": true,
 		"error": "",
@@ -42,7 +49,7 @@ static func validate(decision, candidates: Array, room: RoomState, existing_goal
 			"action": {"id": action_id, "target": target_id},
 			"reason": reason,
 			"goal_updates": goal_result.get("updates", {"add": [], "complete": [], "abandon": []}),
-			"diary_text": decision.get("diary_text", null)
+			"diary_text": diary_text
 		}
 	}
 
