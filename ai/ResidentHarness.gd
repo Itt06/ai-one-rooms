@@ -33,21 +33,22 @@ func request_decision(observation: Dictionary, candidates: Array, room: RoomStat
 	_system_prompt = system_prompt
 	_repair_attempted = false
 	_last_raw_response = ""
-	return client.request_decision(_config, _system_prompt, _observation)
+	return client.request_decision(_config,_system_prompt,_observation)
 
 func _on_client_completed(success: bool, content: String, raw_response: String, error_message: String, latency_ms: int) -> void:
 	_last_raw_response = raw_response
 	if not success:
-		decision_failed.emit(error_message, latency_ms, raw_response)
+		decision_failed.emit(error_message,latency_ms,raw_response)
 		return
 	var parsed = JSON.parse_string(content)
-	var validation := ActionValidator.validate(parsed, _candidates, _room, _goals)
-	if validation.ok:
-		decision_ready.emit(validation.decision, latency_ms, raw_response)
+	var validation := ActionValidator.validate(parsed,_candidates,_room,_goals)
+	if bool(validation.get("ok",false)):
+		decision_ready.emit(validation.get("decision",{}),latency_ms,raw_response)
 		return
+	var validation_error := str(validation.get("error","invalid response"))
 	if not _repair_attempted:
 		_repair_attempted = true
-		var repair := "Your previous output was invalid: %s. Return only valid JSON using exactly one currently available action and allowed target." % validation.error
-		if client.request_decision(_config, _system_prompt, _observation, repair):
+		var repair := "Your previous output was invalid: %s. Return only valid JSON using exactly one currently available action and allowed target." % validation_error
+		if client.request_decision(_config,_system_prompt,_observation,repair):
 			return
-	decision_failed.emit(str(validation.error), latency_ms, raw_response)
+	decision_failed.emit(validation_error,latency_ms,raw_response)
