@@ -33,6 +33,8 @@ func request_decision(observation: Dictionary, candidates: Array, room: RoomStat
 	_goals = goals.duplicate(true)
 	_config = config.duplicate(true)
 	_system_prompt = system_prompt
+	if observation.get("available_skills",[]) is Array and observation.available_skills.is_empty():
+		_system_prompt += "\nNo learned skills are available in this observation. Use decision_type plan; do not output skill."
 	_repair_attempted = false
 	_last_raw_response = ""
 	return client.request_decision(_config,_system_prompt,_observation)
@@ -43,30 +45,15 @@ func _on_client_completed(success: bool, content: String, raw_response: String, 
 		decision_failed.emit(error_message,latency_ms,raw_response)
 		return
 	var parsed = JSON.parse_string(content)
-	if parsed is Dictionary and parsed.has("skill") and parsed.has("plan"):
-		decision_failed.emit("skill_and_plan_are_mutually_exclusive",latency_ms,raw_response); return
-	if parsed is Dictionary and parsed.has("skill"):
-		var skill=parsed.get("skill",{})
-		if skill is Dictionary and skill.get("id","") is String and skill.get("args",{}) is Dictionary:
-			skill_ready.emit(str(skill.id),str(parsed.get("reason","")),parsed.get("goal_updates",{}),latency_ms,raw_response); return
-		decision_failed.emit("Invalid skill invocation",latency_ms,raw_response); return
-	if parsed is Dictionary and parsed.has("plan"):
-		var plan = parsed.get("plan",[])
-		if plan is Array and plan.size() > 0 and plan.size() <= 6:
-			var valid_plan:=true
-			for step in plan:
-				if not step is Dictionary or not step.has("tool") or step.has("action") or step.has("target") or not step.has("args") or not (step.args is Dictionary) or not PrimitiveToolCatalog.TOOLS.has(str(step.get("tool",""))): valid_plan=false
-			if valid_plan:
-				plan_ready.emit(plan,str(parsed.get("reason","")),parsed.get("goal_updates",{}),latency_ms,raw_response); return
-			decision_failed.emit("Invalid short plan",latency_ms,raw_response); return
-	var validation := ActionValidator.validate(parsed,_candidates,_room,_goals)
-	if bool(validation.get("ok",false)):
-		decision_ready.emit(validation.get("decision",{}),latency_ms,raw_response)
+	var schema:=DecisionSchema.validate(parsed)
+	if bool(schema.get("ok",false)):
+		if parsed.decision_type=="plan": plan_ready.emit(parsed.plan,str(parsed.reason),parsed.goal_updates,latency_ms,raw_response)
+		else: skill_ready.emit(str(parsed.skill.id),str(parsed.reason),parsed.goal_updates,latency_ms,raw_response)
 		return
-	var validation_error := str(validation.get("error","invalid response"))
+	var validation_error := str(schema.get("error","invalid response"))
 	if not _repair_attempted:
 		_repair_attempted = true
-		var repair := "Your previous output was invalid: %s. Return only valid JSON using exactly one currently available action and allowed target." % validation_error
+		var repair := "Invalid schema. Choose exactly one: {\"decision_type\":\"plan\",\"reason\":\"...\",\"plan\":[{\"tool\":\"wait\",\"args\":{}}],\"goal_updates\":{\"add\":[],\"complete\":[],\"abandon\":[]}} OR {\"decision_type\":\"skill\",\"reason\":\"...\",\"skill\":{\"id\":\"KNOWN_SKILL_ID\",\"args\":{}} ,\"goal_updates\":{\"add\":[],\"complete\":[],\"abandon\":[]}}. Do not mix, emit null placeholders, or use array args. JSON only."
 		if client.request_decision(_config,_system_prompt,_observation,repair):
 			return
 	decision_failed.emit(validation_error,latency_ms,raw_response)

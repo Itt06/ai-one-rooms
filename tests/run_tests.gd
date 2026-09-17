@@ -9,6 +9,7 @@ func _initialize() -> void:
 	_test_memory_and_goals()
 	_test_grid_and_primitives()
 	_test_skill_learning()
+	_test_decision_schema()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -110,3 +111,12 @@ func _test_skill_learning() -> void:
 	_check(store.skills.size()==1, "three repeated successful plans should create a skill")
 	var expanded:=SkillExecutor.expand(store.skills[0],room)
 	_check(expanded.size()==3 and expanded[1].args.target=="book_01", "skill targets should resolve to current instances")
+
+func _test_decision_schema() -> void:
+	var valid_plan={"decision_type":"plan","reason":"move","plan":[{"tool":"wait","args":{}}],"goal_updates":{"add":[],"complete":[],"abandon":[]}}
+	_check(bool(DecisionSchema.validate(valid_plan).get("ok",false)), "valid plan decision should pass")
+	var valid_skill={"decision_type":"skill","reason":"read","skill":{"id":"skill_read_in_bed","args":{}},"goal_updates":{"add":[],"complete":[],"abandon":[]}}
+	_check(bool(DecisionSchema.validate(valid_skill).get("ok",false)), "valid skill decision should pass")
+	_check(not bool(DecisionSchema.validate(valid_plan.merged({"skill":null})).get("ok",false)), "plan plus null skill should fail")
+	_check(not bool(DecisionSchema.validate({"tool":"wait","args":{}}).get("ok",false)), "missing decision type should fail")
+	_check(not bool(DecisionSchema.validate({"decision_type":"plan","reason":"x","plan":[{"tool":"wait","args":[]}],"goal_updates":{"add":[],"complete":[],"abandon":[]}}).get("ok",false)), "array args should fail")
