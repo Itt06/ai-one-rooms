@@ -165,7 +165,6 @@ func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->vo
 		plan_history.add(plan_executor.plan_id,plan_executor.reason,plan_executor.plan,plan_executor.results,true,clock.text(),clock.text())
 		if current_skill_id!="": skill_store.mark_used(current_skill_id,true); diagnostics.skills_completed+=1
 		skill_store.learn(plan_history.entries,room_state)
-		memory_store.add(clock.text(),"plan", "I followed a plan: %s." % ", ".join(plan_executor.plan.map(func(step): return str(step.get("tool","")))),"completed",0.55,[],needs_model.values)
 		_record_history("plan_completed",plan_executor.plan_id,"",reason); status="idle"; decision_cooldown=0.5; _save_game()
 	else:
 		status="acting"; _run_plan_step()
@@ -177,7 +176,8 @@ func _finish_activity()->void:
 	if not bool(result.get("ok",false)):_abort_plan(str(result.get("error","activity_failed"))); return
 	var before:Dictionary=result.get("before_needs",{}); var after:Dictionary=result.get("after_needs",{}); var improvement:=0.0
 	for key in ["boredom","stress","discomfort","loneliness"]:improvement+=float(before.get(key,0.0))-float(after.get(key,0.0))
-	var event:=result.duplicate(true); event["time"]=clock.text(); event["activity_label"]=ActivityCatalog.get_definition(id).get("activity_label",id); event["time_hour"]=int(clock.snapshot().get("hour",0)); event["salience"]=clamp(0.35+abs(improvement)/100.0,0.35,0.9)
+	var event:=LifeEvent.activity_completed(clock.text(),id,target,activity_executor.started_cell,float(result.get("duration_minutes",0.0)),before,after,{"posture":resident_state.posture,"posture_target":resident_state.posture_target_id,"held_item":resident_state.held_item_id,"time_of_day":clock.snapshot().get("hour",0)},str(result.get("result","completed")))
+	event["time_hour"]=int(clock.snapshot().get("hour",0)); event["salience"]=clamp(0.35+abs(improvement)/100.0,0.35,0.9)
 	preferences.record_life_event(event)
 	memory_store.add_life_event(event)
 	if id=="write_diary":
