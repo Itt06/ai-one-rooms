@@ -20,6 +20,9 @@ func _initialize() -> void:
 		last_count=count
 	var completed_decisions:=int(scene.diagnostics.get("total_decisions",0)); var success:=completed_decisions>=target and not scene.harness.is_busy()
 	print("SOAK PASS" if success else "SOAK INCOMPLETE")
+	var integrity:=_check_integrity(scene)
+	print("State integrity: PASS" if integrity.is_empty() else "State integrity: FAIL")
+	for issue in integrity: print("- %s" % issue)
 	print("Target decisions: %d" % target)
 	print("Completed decisions: %d" % completed_decisions)
 	print("Decisions: %d" % int(scene.diagnostics.get("total_decisions",0)))
@@ -32,4 +35,28 @@ func _initialize() -> void:
 	print("Memories stored: %d" % scene.memory_store.entries.size())
 	print("Skills stored: %d" % scene.skill_store.skills.size())
 	print("Crashes/errors: 0")
-	quit(0 if success else 1)
+	quit(0 if success and integrity.is_empty() else 1)
+
+func _check_integrity(scene:Node)->Array:
+	var issues:Array=[]; var resident=scene.resident_state; var room=scene.room_state
+	if not room.grid.is_inside(resident.current_cell): issues.append("resident cell outside grid")
+	if resident.held_item_id!="":
+		if not room.items.has(resident.held_item_id): issues.append("held item missing")
+		else:
+			var item:Dictionary=room.items[resident.held_item_id]
+			if str(item.get("location",""))!="held" or str(item.get("held_by",""))!="resident": issues.append("held item mismatch")
+	for id in room.items:
+		if int(room.items[id].get("quantity",1))<0: issues.append("negative item quantity: %s"%id)
+	for id in room.objects:
+		for cell in room.objects[id].get("occupied_cells",[]):
+			if not room.grid.is_inside(cell): issues.append("object outside grid: %s"%id); break
+	if scene.goal_store.active_records().size()>GoalStore.MAX_ACTIVE: issues.append("active goals exceed limit")
+	if scene.memory_store.entries.size()>MemoryStore.MAX_ENTRIES: issues.append("memory limit exceeded")
+	if scene.plan_history.entries.size()>50: issues.append("plan history limit exceeded")
+	if scene.skill_store.skills.size()>SkillStore.MAX_SKILLS: issues.append("skill limit exceeded")
+	if resident.posture_target_id!="" and not room.objects.has(resident.posture_target_id): issues.append("posture target missing")
+	var copy_room:=RoomState.new(); copy_room.load_state(room.serialize())
+	var copy_resident:=ResidentState.new(); copy_resident.load_state(resident.serialize())
+	if not copy_room.grid.is_inside(copy_resident.current_cell): issues.append("save/load resident corruption")
+	if copy_room.item_quantity("simple_food")!=room.item_quantity("simple_food"): issues.append("save/load item corruption")
+	return issues
