@@ -17,6 +17,7 @@ func _initialize() -> void:
 	_test_harness_authoritative_snapshot()
 	_test_v11_life_loop()
 	_test_timed_activity_lifecycle()
+	_test_skill_production_path()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -242,6 +243,19 @@ func _test_timed_activity_lifecycle() -> void:
 	_check(bool(pc.update(1.0).get("completed",false)) and bool(pc.complete(room,needs,resident).get("ok",false)), "PC activity should complete after duration")
 	var interrupted:=ActivityExecutor.new(); interrupted.begin("wait","","wait",room,needs,resident); var stopped:=interrupted.interrupt("test interruption")
 	_check(bool(stopped.get("ok",false)) and interrupted.state_name()=="interrupted" and not bool(interrupted.complete(room,needs,resident).get("ok",false)), "interrupted activity must not report success")
+
+func _test_skill_production_path() -> void:
+	var room:=RoomState.new(); var resident:=ResidentState.new(); var needs:=ResidentNeeds.new(); resident.current_cell=room.objects.bookshelf.interaction_cells[0]
+	var store:=SkillStore.new(); store.skills.append({"id":"skill_read_book","name":"read_book","description":"Read","steps":[{"tool":"move_near","args":{"target_type":"bookshelf"}},{"tool":"pick_up","args":{"target_type":"book"}},{"tool":"read","args":{"target_type":"book"}}],"status":"active","offer_count":0,"times_used":0,"success_count":0,"failure_count":0})
+	var offered:=store.relevant(room,resident.held_item_id,needs.values,resident)
+	_check(offered.size()==1 and int(store.skills[0].offer_count)==1, "usable Skill should be offered exactly once")
+	var expanded:=SkillExecutor.expand(store.skills[0],room); _check(not expanded.is_empty() and bool(PlanPreflight.validate(expanded,room,resident,needs).get("ok",false)), "offered Skill should expand and preflight")
+	for step in expanded:
+		if step.tool=="move_near": resident.current_cell=room.objects.bookshelf.interaction_cells[0]
+		elif step.tool=="pick_up": PrimitiveToolExecutor.execute(step,room,resident,needs)
+	store.mark_used("skill_read_book",true); _check(int(store.skills[0].success_count)==1 and int(store.skills[0].failure_count)==0, "Skill success telemetry should be recorded")
+	var failure_store:=SkillStore.new(); failure_store.skills.append(store.skills[0].duplicate(true)); failure_store.mark_used("skill_read_book",false)
+	_check(int(failure_store.skills[0].failure_count)==1 and int(failure_store.skills[0].success_count)==1, "Skill failure telemetry should be recorded safely")
 
 func _test_save_round_trip_and_migration() -> void:
 	var room:=RoomState.new(); room.objects.chair.state=true; room.move_object("chair",Vector2i(5,1),0); room.items.food_stack.quantity=2

@@ -32,6 +32,10 @@ func relevant(room:RoomState, held_item:String, needs:Dictionary, resident:Resid
 		if out.size()>=8:break
 	return out
 
+func mark_offered(id:String)->void:
+	var skill:=get_skill(id)
+	if not skill.is_empty(): skill.offer_count=int(skill.get("offer_count",0))+1
+
 func get_skill(id:String)->Dictionary:
 	for skill in skills: if skill.id==id:return skill
 	return {}
