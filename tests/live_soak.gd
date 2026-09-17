@@ -10,9 +10,25 @@ func _initialize() -> void:
 		if args[i]=="--decisions" and i+1<args.size(): target=max(1,int(args[i+1]))
 		if args[i]=="--max-seconds" and i+1<args.size(): max_seconds=max(1.0,float(args[i+1]))
 	var scene:Node=load("res://Main.tscn").instantiate(); get_root().add_child(scene)
+	# Main's _ready (save restore + initial production request) runs after add_child.
+	# Let that initial lifecycle settle, then freeze one frame so every baseline is
+	# captured from the same authoritative state. Otherwise a restored cumulative
+	# total can be mistaken for fresh decisions.
+	await process_frame
+	var initialization_waited:=0.0
+	while initialization_waited<90.0 and (scene.harness==null or scene.harness.is_busy() or scene.plan_executor.active or scene.activity_executor.is_active() or scene.status=="thinking"):
+		await create_timer(0.1).timeout; initialization_waited+=0.1
+	if scene.harness==null or scene.harness.is_busy() or scene.plan_executor.active or scene.activity_executor.is_active() or scene.status=="thinking":
+		printerr("SOAK INFRASTRUCTURE FAILURE: initial production lifecycle did not settle")
+		quit(2)
+		return
+	var original_speed:float=scene.speed; scene.speed=0.0; await process_frame
 	var baseline_decisions:=int(scene.diagnostics.get("total_decisions",0))
 	var baseline:Dictionary={}
-	for key in ["plans_completed","plans_aborted","fallback_waits","schema_repair_attempts","semantic_repair_attempts","repair_recovered","repair_failed","skills_invoked","skills_completed","activities_started","activities_completed","activities_failed","activities_interrupted"]: baseline[key]=int(scene.diagnostics.get(key,0))
+	for key in ["plans_completed","plans_aborted","fallback_waits","fallback_schema","fallback_semantic","fallback_repair_failed","fallback_transport","fallback_other","schema_repair_attempts","semantic_repair_attempts","repair_recovered","repair_failed","skills_invoked","skills_completed","skills_failed","activities_started","activities_completed","activities_failed","activities_interrupted","primitive_only_plans","plans_with_activity"]: baseline[key]=int(scene.diagnostics.get(key,0))
+	var baseline_memories:int=scene.memory_store.entries.size(); var baseline_preferences:int=_sum_counts(scene.preferences.counts); var baseline_habit_evidence:int=_habit_evidence(scene.habit_store.habits); var baseline_habits:int=scene.habit_store.summary().size(); var baseline_skill_stats:Dictionary=scene.skill_store.candidate_stats.duplicate(true)
+	var baseline_activity_types:Dictionary=scene.diagnostics.get("activity_types_requested",{}).duplicate(true); var baseline_interruptions:Dictionary=scene.diagnostics.get("activity_interruption_reasons",{}).duplicate(true)
+	scene.speed=original_speed
 	print("Starting cumulative decisions: %d" % baseline_decisions)
 	print("Target new decisions: %d" % target)
 	var waited:=0.0
@@ -37,23 +53,48 @@ func _initialize() -> void:
 	print("Run-local activities started: %d" % _delta(scene,"activities_started",baseline))
 	print("Run-local activities failed: %d" % _delta(scene,"activities_failed",baseline))
 	print("Run-local activities interrupted: %d" % _delta(scene,"activities_interrupted",baseline))
+	print("Primitive-only plans: %d" % _delta(scene,"primitive_only_plans",baseline))
+	print("Plans with activity: %d" % _delta(scene,"plans_with_activity",baseline))
+	print("Activity types requested: %s" % JSON.stringify(_dictionary_delta(scene.diagnostics.get("activity_types_requested",{}),baseline_activity_types)))
+	print("Activity interruption reasons: %s" % JSON.stringify(_dictionary_delta(scene.diagnostics.get("activity_interruption_reasons",{}),baseline_interruptions)))
 	print("Run-local fallback waits: %d" % _delta(scene,"fallback_waits",baseline))
 	for category in ["fallback_schema","fallback_semantic","fallback_repair_failed","fallback_transport","fallback_other"]: print("%s: %d" % [category,_delta(scene,category,baseline)])
 	print("Schema repair attempts: %d" % _delta(scene,"schema_repair_attempts",baseline))
 	print("Semantic repair attempts: %d" % _delta(scene,"semantic_repair_attempts",baseline))
 	print("Repair recovered: %d" % _delta(scene,"repair_recovered",baseline))
 	print("Repair failed: %d" % _delta(scene,"repair_failed",baseline))
-	print("Memories stored: %d" % scene.memory_store.entries.size())
+	print("Memories created: %d" % max(0,scene.memory_store.entries.size()-baseline_memories))
+	print("Preference updates: %d" % max(0,_sum_counts(scene.preferences.counts)-baseline_preferences))
+	print("Habit evidence: %d" % max(0,_habit_evidence(scene.habit_store.habits)-baseline_habit_evidence))
+	print("Habits created: %d" % max(0,scene.habit_store.summary().size()-baseline_habits))
 	print("Skills stored: %d" % scene.skill_store.skills.size())
 	print("Skill eligible sequences: %d" % int(scene.skill_store.candidate_stats.get("eligible_sequences",0)))
 	print("Skill candidates detected: %d" % int(scene.skill_store.candidate_stats.get("candidate_detections",0)))
 	print("Skills created: %d" % int(scene.skill_store.candidate_stats.get("skills_created",0)))
+	print("Skills offered: %d" % (int(scene.skill_store.candidate_stats.get("skills_offered",0))-int(baseline_skill_stats.get("skills_offered",0))))
+	print("Skills invoked: %d" % _delta(scene,"skills_invoked",baseline))
+	print("Skills completed: %d" % _delta(scene,"skills_completed",baseline))
+	print("Skills failed: %d" % _delta(scene,"skills_failed",baseline))
 	print("Fatal runtime errors: not instrumented by Godot; process exit and parser/headless checks were clean")
 	print("SOAK PASS" if final_success else "SOAK FAIL")
 	quit(0 if final_success else 1)
 
 func _delta(scene:Node,key:String,baseline:Dictionary)->int:
 	return int(scene.diagnostics.get(key,0))-int(baseline.get(key,0))
+
+func _dictionary_delta(current:Dictionary,baseline:Dictionary)->Dictionary:
+	var out:Dictionary={}
+	for key in current:
+		var change:=int(current.get(key,0))-int(baseline.get(key,0)); if change!=0:out[key]=change
+	return out
+
+func _sum_counts(counts:Dictionary)->int:
+	var total:=0; for value in counts.values():total+=int(value)
+	return total
+
+func _habit_evidence(habits:Array)->int:
+	var total:=0; for habit in habits:total+=int(habit.get("count",0))
+	return total
 
 func _check_integrity(scene:Node)->Array:
 	var issues:Array=[]; var resident=scene.resident_state; var room=scene.room_state
