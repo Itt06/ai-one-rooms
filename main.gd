@@ -1,6 +1,6 @@
 extends Node2D
 
-const DEFAULT_CONFIG := {"base_url":"http://127.0.0.1:8000/v1","model":"Ornith-1.5-9B","temperature":0.3,"timeout_ms":15000,"max_tokens":256}
+const DEFAULT_CONFIG := {"base_url":"http://127.0.0.1:8000/v1","model":"Ornith-1.5-9B","temperature":0.3,"timeout_ms":30000,"max_tokens":256}
 
 var speed := 1.0
 var status := "idle"
