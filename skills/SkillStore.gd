@@ -17,15 +17,24 @@ func learn(history:Array, room:RoomState)->void:
 		candidate_stats["skills_created"]=int(candidate_stats.get("skills_created",0))+1
 		if skills.size()>MAX_SKILLS: skills.pop_front()
 
-func relevant(room:RoomState, held_item:String, needs:Dictionary)->Array:
+func relevant(room:RoomState, held_item:String, needs:Dictionary, resident:ResidentState=null)->Array:
 	var out:Array=[]
 	for skill in skills:
 		if skill.status!="active":continue
+		var expanded:=SkillExecutor.expand(skill,room)
+		if expanded.is_empty():continue
+		if resident!=null:
+			var check:=PlanPreflight.validate(expanded,room,resident,ResidentNeeds.new())
+			if not bool(check.get("ok",false)):continue
 		skill.offer_count=int(skill.get("offer_count",0))+1
 		candidate_stats["skills_offered"]=int(candidate_stats.get("skills_offered",0))+1
-		out.append({"id":skill.id,"name":skill.name,"description":skill.description,"success_rate":_rate(skill)})
+		out.append({"id":skill.id,"name":skill.name,"description":skill.description,"success_rate":_rate(skill),"steps":skill.get("steps",[]).duplicate(true)})
 		if out.size()>=8:break
 	return out
+
+func mark_offered(id:String)->void:
+	var skill:=get_skill(id)
+	if not skill.is_empty(): skill.offer_count=int(skill.get("offer_count",0))+1
 
 func get_skill(id:String)->Dictionary:
 	for skill in skills: if skill.id==id:return skill

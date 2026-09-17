@@ -1,179 +1,61 @@
 extends SceneTree
 
-## Low-cost local benchmark. Run with: godot --headless --path . --script res://tests/live_ornith_regression.gd -- --runs 1
-## This exercises the production prompt, DecisionSchema, PrimitiveToolValidator,
-## PrimitiveToolExecutor, and SkillExecutor without mutating the real save.
+var http:HTTPRequest
+var scenarios=["relevant_memory","learned_preference","established_habit","relevant_skill","goal_vs_need","satiation","failed_call_friend_memory","neutral"]
+const SCENARIO_TIMEOUT:=60.0
+const TOTAL_TIMEOUT:=540.0
+var totals:Dictionary={"json":0,"schema":0,"semantic":0,"first_accepted":0,"schema_repairs":0,"semantic_repairs":0,"recovered":0,"repair_failed":0,"accepted":0,"rejected":0,"timeouts":0}
 
-var runs := 1
-var only_scenarios := ""
-var client: HTTPRequest
-var metrics := {
-	"decisions": 0, "json_valid": 0, "schema_valid": 0, "semantic_valid": 0,
-	"harness_accepted": 0, "execution_success": 0, "execution_abort": 0,
-	"repair_used": 0, "repair_recovered": 0, "parse_failures": 0,
-	"hallucinated_tools": 0, "hallucinated_targets": 0, "harness_rejected_plans": 0,
-	"skill_invoked": 0, "skill_completed": 0, "skill_failed": 0
-}
-var failure_reasons := {}
+func _initialize()->void:
+	var requested:=OS.get_cmdline_user_args(); for i in requested.size():
+		if requested[i]=="--scenario" and i+1<requested.size(): scenarios=str(requested[i+1]).split(",")
+	var total_started:=Time.get_ticks_msec(); http=HTTPRequest.new(); http.timeout=5.0; root.add_child(http); await process_frame
+	if not await _models(): print("Ornith live test: SKIPPED - local server unavailable"); quit(0); return
+	for i in scenarios.size():
+		if float(Time.get_ticks_msec()-total_started)/1000.0>=TOTAL_TIMEOUT: print("BENCHMARK_TOTAL_TIMEOUT"); quit(1); return
+		print("[%d/%d] %s: requesting"%[i+1,scenarios.size(),scenarios[i]])
+		await _run_scenario(str(scenarios[i]),i+1)
+	print("All scenarios terminated")
+	for key in totals:print("%s: %d"%[key,int(totals[key])])
+	quit(0 if int(totals.timeouts)==0 else 1)
 
-func _initialize() -> void:
-	var args := OS.get_cmdline_user_args()
-	for i in args.size():
-		if args[i] == "--runs" and i + 1 < args.size():
-			runs = max(1, int(args[i + 1]))
-		if args[i] == "--scenario" and i + 1 < args.size():
-			only_scenarios = str(args[i + 1])
-	client = HTTPRequest.new()
-	get_root().add_child(client)
-	await process_frame
-	await _run()
-	quit(0)
+func _models()->bool:
+	if http.request("http://127.0.0.1:8000/v1/models")!=OK:return false
+	var response=await http.request_completed
+	return response[0]==HTTPRequest.RESULT_SUCCESS and response[1]>=200 and response[1]<300
 
-func _run() -> void:
-	var model_result := await _request("/v1/models", {})
-	if not bool(model_result.get("ok", false)):
-		print("Ornith live test: SKIPPED - local server unavailable")
-		return
-	var model_body: Dictionary = model_result.get("body", {})
-	var model := str(model_body.get("data", [{}])[0].get("id", ""))
-	if model == "":
-		print("Ornith live test: SKIPPED - model id unavailable")
-		return
-	var prompt := FileAccess.get_file_as_string("res://ai/prompts/resident_system_prompt.txt")
-	var scenarios := ["free_movement", "read_book", "eat_drink", "invalid_proximity", "sit", "skill", "furniture", "no_useful_action"]
-	if only_scenarios != "":
-		scenarios = only_scenarios.split(",")
-	for run_index in runs:
-		for scenario in scenarios:
-			var context := _scenario_context(str(scenario))
-			var response := await _request("/v1/chat/completions", {
-				"model": model, "temperature": 0.3, "max_tokens": 192,
-				"response_format": {"type": "json_object"},
-				"messages": [{"role": "system", "content": prompt}, {"role": "user", "content": JSON.stringify(context)}]
-			})
-			metrics["decisions"] += 1
-			if not bool(response.get("ok", false)):
-				metrics["execution_abort"] += 1
-				_fail("server_error")
-				continue
-			var body: Dictionary = response.get("body", {})
-			var choices: Array = body.get("choices", [])
-			if choices.is_empty():
-				metrics["execution_abort"] += 1
-				_fail("missing_choice")
-				continue
-			var content := str(choices[0].get("message", {}).get("content", ""))
-			var parsed = JSON.parse_string(content)
-			if not parsed is Dictionary:
-				metrics["parse_failures"] += 1
-				metrics["execution_abort"] += 1
-				_fail("malformed_json")
-				continue
-			metrics["json_valid"] += 1
-			var schema := DecisionSchema.validate(parsed)
-			if not bool(schema.get("ok", false)):
-				metrics["execution_abort"] += 1
-				_fail("schema:%s" % str(schema.get("error", "invalid")))
-				continue
-			metrics["schema_valid"] += 1
-			_evaluate_semantics(parsed, str(scenario))
+func _run_scenario(name:String,index:int=0)->void:
+	var room:=RoomState.new(); var resident:=ResidentState.new(); var needs:=ResidentNeeds.new(); var memory:=MemoryStore.new(); var prefs:=PreferenceStore.new(); var habits:=HabitStore.new(); var goals:=GoalStore.new(); var skills:=SkillStore.new()
+	_configure(name,room,resident,needs,memory,prefs,habits,goals,skills)
+	var available:=PrimitiveToolCatalog.available(room,{"current_cell":resident.current_cell,"held_item_id":resident.held_item_id}); var ids:Array=[]; for item in available:ids.append(str(item.get("tool","")))
+	var observation:=ObservationBuilder.build(WorldClock.new(),needs,room,resident.render_position,"idle",memory.retrieve(ids,goals.active_texts(),6,"",[]),goals.active_texts(),prefs.summary(),[],{"habits":habits.summary()},{"cell":resident.current_cell,"posture":resident.posture,"held_item_id":resident.held_item_id},skills.relevant(room,resident.held_item_id,needs.values,resident),{"scenario":name})
+	var harness:=ResidentHarness.new(); root.add_child(harness); var state:Dictionary={"done":false,"accepted":false,"repairs":0,"recovered":0,"repair_failed":0,"failure":"","first":{"json":false,"schema":false,"semantic":false}}
+	harness.validation_observed.connect(func(stage,ok,is_repair):if not is_repair:state.first[stage]=ok)
+	harness.validation_failed.connect(func(kind,error,is_repair): print("[%d/8] %s: validation_failed kind=%s repair=%s error=%s"%[index,name,kind,is_repair,error]))
+	harness.repair_attempted.connect(func(kind):state["repairs"]+=1;totals["%s_repairs"%kind]+=1; print("[%d/8] %s: repair %s"%[index,name,kind]))
+	harness.repair_recovered.connect(func():state["recovered"]+=1)
+	harness.repair_failed.connect(func():state["repair_failed"]+=1; print("[%d/8] %s: repair failed"%[index,name]))
+	harness.plan_ready.connect(func(_p,_r,_g,_l,_raw):state["accepted"]=true;state["done"]=true; print("[%d/8] %s: accepted plan"%[index,name]))
+	harness.skill_ready.connect(func(_id,_r,_g,_l,_raw):state["accepted"]=true;state["done"]=true; print("[%d/8] %s: accepted skill"%[index,name]))
+	harness.decision_failed.connect(func(error,_l,_raw):state["failure"]=error;state["done"]=true; print("[%d/8] %s: final failure %s"%[index,name,error]))
+	harness.request_decision(observation,[],room,goals.active_texts(),{"base_url":"http://127.0.0.1:8000/v1","model":"Ornith-1.5-9B","temperature":0.3,"timeout_ms":30000,"max_tokens":256},FileAccess.get_file_as_string("res://ai/prompts/resident_system_prompt.txt"),resident.snapshot(),needs.snapshot())
+	var waited:=0.0
+	while not bool(state["done"]) and waited<SCENARIO_TIMEOUT:await create_timer(0.25).timeout;waited+=0.25
+	if not bool(state["done"]): state["failure"]="BENCHMARK_TIMEOUT"; print("[%d/8] %s: BENCHMARK_TIMEOUT after %.0fs harness_busy=%s"%[index,name,SCENARIO_TIMEOUT,harness.is_busy()])
+	for stage in ["json","schema","semantic"]:if bool(state.first[stage]):totals[stage]+=1
+	if bool(state["accepted"]):totals.accepted+=1
+	else:totals.rejected+=1
+	if bool(state["accepted"]) and int(state["repairs"])==0:totals.first_accepted+=1
+	totals.recovered+=int(state.recovered);totals.repair_failed+=int(state.repair_failed)
+	if state.failure=="BENCHMARK_TIMEOUT":totals.timeouts+=1
+	print("%s: final_accepted=%s repair_attempts=%d recovered=%d failure=%s"%[name,state["accepted"],state["repairs"],state["recovered"],state["failure"]]); harness.queue_free(); await process_frame
 
-	print("Ornith regression summary (%d scenarios x %d runs)" % [scenarios.size(), runs])
-	for key in metrics:
-		print("%s: %s" % [key, metrics[key]])
-	print("failure_reasons_top10: %s" % JSON.stringify(_top_failures(10)))
-
-func _evaluate_semantics(decision: Dictionary, scenario: String) -> void:
-	if str(decision.get("decision_type", "")) == "skill":
-		metrics["skill_invoked"] += 1
-		var skill: Dictionary = decision.get("skill", {})
-		if scenario != "skill" or str(skill.get("id", "")) != "skill_read_book":
-			metrics["skill_failed"] += 1
-			metrics["harness_rejected_plans"] += 1
-			metrics["execution_abort"] += 1
-			_fail("unknown_or_unavailable_skill")
-			return
-		var room := RoomState.new()
-		var expanded := SkillExecutor.expand({"id":"skill_read_book", "steps":[
-			{"tool":"move_near","args":{"target_type":"bookshelf"}},
-			{"tool":"pick_up","args":{"target_type":"book"}},
-			{"tool":"read","args":{"target_type":"book"}}
-		]}, room)
-		if _execute_plan(expanded, room, ResidentState.new()):
-			metrics["semantic_valid"] += 1; metrics["harness_accepted"] += 1; metrics["skill_completed"] += 1; metrics["execution_success"] += 1
-		else:
-			metrics["skill_failed"] += 1; metrics["harness_rejected_plans"] += 1; metrics["execution_abort"] += 1; _fail("skill_expansion_not_executable")
-		return
-	var room := RoomState.new()
-	var resident := ResidentState.new()
-	_configure_scenario(room, resident, scenario)
-	var plan: Array = decision.get("plan", [])
-	for step in plan:
-		if not step is Dictionary: continue
-		var tool := str(step.get("tool", ""))
-		if not PrimitiveToolCatalog.TOOLS.has(tool): metrics["hallucinated_tools"] += 1
-		var args: Dictionary = step.get("args", {})
-		var definition: Dictionary = PrimitiveToolCatalog.TOOLS.get(tool, {})
-		var target := str(args.get("target", ""))
-		if target != "" and definition.get("target", "") == "object" and not room.objects.has(target): metrics["hallucinated_targets"] += 1
-		if target != "" and definition.get("target", "") == "item" and not room.items.has(target): metrics["hallucinated_targets"] += 1
-	if _execute_plan(plan, room, resident):
-		metrics["semantic_valid"] += 1; metrics["harness_accepted"] += 1; metrics["execution_success"] += 1
-	else:
-		metrics["harness_rejected_plans"] += 1; metrics["execution_abort"] += 1; _fail("plan_rejected_or_not_executable")
-
-func _execute_plan(plan: Array, room: RoomState, resident: ResidentState) -> bool:
-	if plan.is_empty() or plan.size() > 6: _fail("plan_length"); return false
-	for step in plan:
-		var checked := PrimitiveToolValidator.validate(step, room, room.grid, {"current_cell":resident.current_cell,"held_item_id":resident.held_item_id}, room.items)
-		if not bool(checked.get("ok", false)):
-			_fail("validator:%s" % str(checked.get("error", "rejected")))
-			return false
-		var tool := str(step.get("tool", "")); var args: Dictionary = step.get("args", {})
-		if tool == "move_near":
-			var target := str(args.get("target", "")); var cells: Array = room.objects[target].get("interaction_cells", [])
-			if cells.is_empty() or room.grid.find_path(resident.current_cell, cells[0], room.blocked_cells()).is_empty(): _fail("target_unreachable"); return false
-			resident.current_cell = cells[0]
-		elif tool == "move_to":
-			var destination := Vector2i(int(args.get("x", -1)), int(args.get("y", -1)))
-			if room.grid.find_path(resident.current_cell, destination, room.blocked_cells()).is_empty(): _fail("destination_unreachable"); return false
-			resident.current_cell = destination
-		else:
-			var result := PrimitiveToolExecutor.execute(step, room, resident, ResidentNeeds.new())
-			if not bool(result.get("ok", false)): _fail("executor_rejected"); return false
-	return true
-
-func _scenario_context(scenario: String) -> Dictionary:
-	var room := RoomState.new(); var resident := ResidentState.new(); _configure_scenario(room, resident, scenario)
-	var resident_data := {"cell":[resident.current_cell.x,resident.current_cell.y],"posture":resident.posture,"held_item_id":resident.held_item_id}
-	var available_skills: Array = []
-	if scenario == "skill": available_skills = [{"id":"skill_read_book","name":"read_in_bed","description":"Move to the shelf, pick up a book, and read it.","success_rate":1.0}]
-	var item_observation:Array=[]
-	for id in room.items: item_observation.append({"id":id,"type":room.items[id].get("type",""),"location":room.items[id].get("location","")})
-	return {"time":{"day":1,"hour":10,"minute":0},"self":{"cell":resident_data.cell,"posture":resident.posture,"held_item":null,"needs":{"hunger":30,"thirst":30,"sleepiness":20,"boredom":20}},"room":{"grid_size":[RoomGrid.WIDTH,RoomGrid.HEIGHT],"cleanliness":room.cleanliness,"light_on":room.light_on},"objects":room.visible_objects(),"items":item_observation,"available_tools":PrimitiveToolCatalog.available(room,{"held_item_id":resident.held_item_id}),"available_skills":available_skills,"active_goals":[],"relevant_memories":[],"recent_behavior": {"note":"No action is required; choose naturally."} if scenario == "no_useful_action" else {}}
-
-func _configure_scenario(room: RoomState, resident: ResidentState, scenario: String) -> void:
-	if scenario in ["read_book", "invalid_proximity"]: resident.current_cell = Vector2i(10, 6)
-	elif scenario == "eat_drink": resident.current_cell = Vector2i(2, 7)
-	elif scenario in ["sit", "furniture"]: resident.current_cell = room.objects["chair"].interaction_cells[0]
-	else: resident.current_cell = Vector2i(5, 6)
-
-func _fail(reason: String) -> void:
-	failure_reasons[reason] = int(failure_reasons.get(reason, 0)) + 1
-
-func _top_failures(limit: int) -> Dictionary:
-	var rows: Array = []
-	for key in failure_reasons: rows.append({"reason":key,"count":failure_reasons[key]})
-	rows.sort_custom(func(a,b): return int(a.count) > int(b.count))
-	var out := {}; for i in min(limit, rows.size()): out[rows[i].reason] = rows[i].count
-	return out
-
-func _request(path: String, payload: Dictionary) -> Dictionary:
-	var url := "http://127.0.0.1:8000" + path
-	var method := HTTPClient.METHOD_GET if payload.is_empty() else HTTPClient.METHOD_POST
-	var body := "" if payload.is_empty() else JSON.stringify(payload)
-	var error := client.request(url, ["Content-Type: application/json"], method, body)
-	if error != OK: return {"ok":false}
-	var result = await client.request_completed
-	var parsed = JSON.parse_string(result[3].get_string_from_utf8())
-	return {"ok":result[0] == HTTPRequest.RESULT_SUCCESS and result[1] >= 200 and result[1] < 300 and parsed is Dictionary,"body":parsed}
+func _configure(name:String,room:RoomState,resident:ResidentState,needs:ResidentNeeds,memory:MemoryStore,prefs:PreferenceStore,habits:HabitStore,goals:GoalStore,skills:SkillStore)->void:
+	if name in ["relevant_memory","learned_preference","established_habit"]:resident.current_cell=room.objects.bookshelf.interaction_cells[0]
+	if name=="relevant_memory":memory.add("Day 1 19:00","read","Reading helped me calm down.","completed",0.8,["book_01"],{"activity":"read","boredom":-20.0})
+	if name=="learned_preference":for i in 5:prefs.record("read",0.04,19)
+	if name=="established_habit":for i in 4:habits.record({"activity":"read","target":"bed","time_hour":20,"result":{"success":true}})
+	if name=="relevant_skill":skills.skills.append({"id":"skill_read_book","name":"read_book","description":"Read a book","steps":[{"tool":"move_near","args":{"target_type":"bookshelf"}},{"tool":"pick_up","args":{"target_type":"book"}},{"tool":"read","args":{"target_type":"book"}}],"status":"active","offer_count":0,"times_used":0,"success_count":0,"failure_count":0})
+	if name=="goal_vs_need":goals.apply({"add":["Spend quiet time"],"complete":[],"abandon":[]});needs.values["thirst"]=75.0
+	if name=="satiation":prefs.record("read",0.1,20);resident.current_cell=room.objects.bookshelf.interaction_cells[0]
+	if name=="failed_call_friend_memory":memory.add("Day 1 18:00","call_friend","Nobody answered.","no_answer",0.7,["phone"],{"loneliness":2.0})

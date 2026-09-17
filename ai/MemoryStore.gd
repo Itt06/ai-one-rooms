@@ -29,10 +29,21 @@ func add(time: String, action: String, summary: String, result: String, salience
 
 func add_life_event(event:Dictionary)->void:
 	if event.is_empty():return
-	var activity:=str(event.get("activity","activity")); var target:=str(event.get("target","")); var label:=str(event.get("activity_label",activity))
-	var summary:="I %s"%label
-	if target!="":summary+=" near %s"%target
-	add(str(event.get("time","")),activity,summary+".",str(event.get("result","completed")),float(event.get("salience",0.5)),[target] if target!="" else [],event.get("before_needs",{}))
+	var activity:=str(event.get("activity","activity")); var target:=str(event.get("target",""))
+	var summary:=_narrate(event)
+	add(str(event.get("time","")),activity,summary,str(event.get("result",{}).get("reason","completed")),float(event.get("salience",0.5)),[target] if target!="" else [],event.get("need_delta",{}))
+	if not entries.is_empty():
+		entries[0]["event_type"]="activity_completed"; entries[0]["activity"]=activity; entries[0]["target"]=target; entries[0]["need_effects"]=event.get("need_delta",{}); entries[0]["tags"]=event.get("tags",[])
+
+static func _narrate(event:Dictionary)->String:
+	var activity:=str(event.get("activity","")); var delta:Dictionary=event.get("need_delta",{})
+	var benefit:=""
+	for key in ["boredom","stress","discomfort","loneliness","sleepiness"]:
+		if float(delta.get(key,0.0)) < -5.0: benefit=key.replace("_need",""); break
+	var phrases={"read":"I spent some time reading","sleep":"I slept for a while","drink":"I had some water","eat":"I ate something","shower":"I took a shower","clean":"I tidied the room","watch_tv":"I watched TV","use_pc":"I used the computer","call_friend":"I tried calling someone"}
+	var text:=str(phrases.get(activity,"I spent some time on %s"%activity))
+	if benefit!="": text+="; it helped with my %s"%benefit
+	return text+"."
 
 func retrieve(action_ids: Array, goals: Array, limit := 6, current_target := "", strong_needs := []) -> Array:
 	var scored: Array = []
@@ -49,9 +60,9 @@ func retrieve(action_ids: Array, goals: Array, limit := 6, current_target := "",
 			for token in _tokens(str(goal)):
 				if token.length() >= 3 and token in lower_summary:
 					score += 0.08
+		var effects:Dictionary=memory.get("need_effects",memory.get("need_context",{}))
 		for need_name in strong_needs:
-			if str(need_name).to_lower() in lower_summary:
-				score += 0.12
+			if float(effects.get(str(need_name),0.0)) < 0.0: score += 0.18
 		scored.append({"score": score, "memory": memory})
 	scored.sort_custom(func(a, b): return float(a.score) > float(b.score))
 	var result: Array = []

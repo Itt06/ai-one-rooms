@@ -8,6 +8,8 @@ signal skill_ready(skill_id: String, reason: String, goal_updates: Dictionary, l
 signal repair_attempted(kind: String)
 signal repair_recovered()
 signal repair_failed()
+signal validation_failed(kind: String, error: String, is_repair_response: bool)
+signal validation_observed(stage: String, ok: bool, is_repair_response: bool)
 
 var client: LLMClient
 var _observation: Dictionary = {}
@@ -52,9 +54,16 @@ func _on_client_completed(success: bool, content: String, raw_response: String, 
 		decision_failed.emit(error_message,latency_ms,raw_response)
 		return
 	var parsed = JSON.parse_string(content)
+	if not parsed is Dictionary:
+		validation_observed.emit("json",false,_repair_attempted)
+		_handle_invalid("schema","malformed_json",latency_ms,raw_response)
+		return
+	validation_observed.emit("json",true,_repair_attempted)
 	var schema:=DecisionSchema.validate(parsed)
+	validation_observed.emit("schema",bool(schema.get("ok",false)),_repair_attempted)
 	if bool(schema.get("ok",false)):
 		var semantic:=_validate_semantic(parsed)
+		validation_observed.emit("semantic",bool(semantic.get("ok",false)),_repair_attempted)
 		if not bool(semantic.get("ok",false)):
 			_handle_invalid("semantic",str(semantic.get("error","plan is not executable")),latency_ms,raw_response)
 			return
@@ -63,6 +72,7 @@ func _on_client_completed(success: bool, content: String, raw_response: String, 
 		else: skill_ready.emit(str(parsed.skill.id),str(parsed.reason),parsed.goal_updates,latency_ms,raw_response)
 		return
 	var validation_error := str(schema.get("error","invalid response"))
+	validation_failed.emit("schema",validation_error,_repair_attempted)
 	if not _repair_attempted:
 		_repair_attempted = true
 		repair_attempted.emit("schema")
@@ -73,6 +83,7 @@ func _on_client_completed(success: bool, content: String, raw_response: String, 
 	decision_failed.emit(validation_error,latency_ms,raw_response)
 
 func _handle_invalid(kind:String, error_message:String, latency_ms:int, raw_response:String)->void:
+	validation_failed.emit(kind,error_message,_repair_attempted)
 	if not _repair_attempted:
 		_repair_attempted=true
 		repair_attempted.emit("semantic")
@@ -89,5 +100,10 @@ func _validate_semantic(parsed:Dictionary)->Dictionary:
 		return PlanPreflight.validate(parsed.plan,_room,resident,needs)
 	var skill_id:=str(parsed.get("skill",{}).get("id",""))
 	for skill in _observation.get("available_skills",[]):
-		if str(skill.get("id",""))==skill_id:return {"ok":true}
+		if str(skill.get("id",""))==skill_id:
+			var resident_skill:=ResidentState.new(); resident_skill.load_state(_resident_snapshot)
+			var needs_skill:=ResidentNeeds.new(); needs_skill.load_snapshot(_needs_snapshot)
+			var expanded:=SkillExecutor.expand(skill,_room)
+			if expanded.is_empty():return {"ok":false,"error":"skill_expansion_failed"}
+			return PlanPreflight.validate(expanded,_room,resident_skill,needs_skill)
 	return {"ok":false,"error":"unknown_skill"}

@@ -9,8 +9,9 @@ static func validate(raw) -> Dictionary:
 	var forbidden:= "skill" if kind=="plan" else "plan"
 	for key in required: if not raw.has(key): return _fail("missing_%s"%key)
 	if raw.has(forbidden): return _fail("%s_not_allowed_for_%s"%[forbidden,kind])
-	for key in raw: if key not in required: return _fail("unexpected_top_level_field_%s"%key)
+	for key in raw: if key not in required and key!="intention": return _fail("unexpected_top_level_field_%s"%key)
 	if not raw.reason is String or str(raw.reason).length()>200: return _fail("invalid_reason")
+	if raw.has("intention") and (not raw.intention is String or str(raw.intention).length()>160): return _fail("invalid_intention")
 	if not raw.goal_updates is Dictionary: return _fail("invalid_goal_updates")
 	if kind=="plan":
 		if not raw.plan is Array or raw.plan.is_empty() or raw.plan.size()>6: return _fail("plan_must_contain_1_to_6_steps")
