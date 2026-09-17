@@ -26,9 +26,18 @@ var validation_error := ""
 var decision_cooldown := 0.0
 var person_pos := Vector2(420, 390)
 var labels := {}
+var clock := WorldClock.new()
+var room_state := RoomState.new()
+var needs_model := ResidentNeeds.new()
+var memory_store := MemoryStore.new()
+var goal_store := GoalStore.new()
+var preferences := PreferenceStore.new()
+var target_position := Vector2(420, 390)
+var move_speed := 180.0
 
 func _ready() -> void:
 	_load_game()
+	clock.total_minutes = sim_minutes; needs_model.values = needs; room_state.resources = inventory; room_state.cleanliness = room_cleanliness
 	http = HTTPRequest.new(); http.timeout = 15.0; add_child(http); http.request_completed.connect(_on_llm_response)
 	_add_room_art()
 	_build_ui(); queue_redraw(); _request_decision()
@@ -48,7 +57,7 @@ func _add_room_art() -> void:
 
 func _process(delta: float) -> void:
 	var minutes := delta * speed * 2.0
-	if status != "thinking": sim_minutes += minutes; _tick_needs(minutes)
+	if status != "thinking": clock.advance(delta, speed); sim_minutes = clock.total_minutes; needs_model.advance(minutes); needs = needs_model.values; _tick_needs(0.0)
 	if action_remaining > 0: action_remaining -= minutes; _move_visual(delta)
 	if action_remaining <= 0 and current_action != "idle" and status == "acting": _finish_action()
 	decision_cooldown = max(0.0, decision_cooldown - delta)
@@ -93,6 +102,7 @@ func _fallback(message: String) -> void:
 func _start_action(id: String, _target: String, why: String) -> void:
 	current_action=id; reason=why if why else ACTION_NAMES.get(id,id); status="acting"; action_remaining=10.0 if id in ["wait","sit","inspect_object"] else 30.0
 	if id == "sleep": action_remaining=120.0
+	if _target != "" and room_state.objects.has(_target): target_position = room_state.objects[_target].interaction_point
 
 func _finish_action() -> void:
 	var id:=current_action
@@ -106,7 +116,8 @@ func _finish_action() -> void:
 	memories=memories.slice(0,20); _log_decision(id); current_action="idle"; status="idle"; decision_cooldown=1.0; _save_game()
 
 func _observation() -> Dictionary:
-	return {"time":_time_text(),"self":{"needs":needs,"current_action":current_action,"location":"room"},"room":{"cleanliness":room_cleanliness,"trash_level":inventory.trash,"light_on":true},"objects":["bed","desk","fridge","sink","shower","toilet","bookshelf","pc","tv","window"],"inventory_and_resources":{"fridge":{"water":inventory.water,"simple_food":inventory.simple_food},"bookshelf":{"book":inventory.book}},"active_goals":goals,"recent_memories":memories.slice(0,6),"available_actions":ACTIONS}
+	var candidates := ActionCatalog.candidates(room_state)
+	return ObservationBuilder.build(clock, needs_model, room_state, person_pos, current_action, memory_store.retrieve(ACTIONS, goals), goals, preferences.summary(), candidates)
 
 func _prompt() -> String:
 	var f:=FileAccess.open("res://ai/prompts/resident_system_prompt.txt",FileAccess.READ); return f.get_as_text() if f else "Choose an available action and return JSON."
@@ -120,7 +131,8 @@ func _apply_goals(u: Dictionary) -> void:
 	for g in u.get("complete",[]): goals.erase(str(g))
 
 func _time_text() -> String: return "Day %d %02d:%02d" % [int(sim_minutes/1440)+1,int(fmod(sim_minutes,1440)/60),int(fmod(sim_minutes,60))]
-func _move_visual(delta:float)->void: person_pos.x=380+sin(sim_minutes/90.0)*120
+func _move_visual(delta:float)->void:
+	person_pos = person_pos.move_toward(target_position, move_speed * delta * (0.55 if needs.sleepiness > 90 else 1.0))
 func _log_decision(id:String)->void: var f=FileAccess.open("user://decision_log.jsonl",FileAccess.READ_WRITE); if f: f.seek_end(); f.store_line(JSON.stringify({"time":_time_text(),"action":id,"reason":reason,"latency":last_latency,"validation":"valid"}))
 func _save_game()->void: var f=FileAccess.open("user://one_room_save.json",FileAccess.WRITE); if f: f.store_string(JSON.stringify({"sim_minutes":sim_minutes,"needs":needs,"inventory":inventory,"room_cleanliness":room_cleanliness,"memories":memories,"diary":diary,"goals":goals}))
 func _load_game()->void: if FileAccess.file_exists("user://one_room_save.json"): var d=JSON.parse_string(FileAccess.get_file_as_string("user://one_room_save.json")); if d is Dictionary: sim_minutes=d.get("sim_minutes",480); needs=d.get("needs",needs); inventory=d.get("inventory",inventory); room_cleanliness=d.get("room_cleanliness",82); memories=d.get("memories",[]); diary=d.get("diary",[]); goals=d.get("goals",[])
