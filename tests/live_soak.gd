@@ -18,7 +18,7 @@ func _initialize() -> void:
 		if count>0 and count%5==0 and count!=last_count:
 			print("[%d/%d] completed; plans completed: %d; plans aborted: %d; fallback waits: %d" % [count,target,scene.diagnostics.get("plans_completed",0),scene.diagnostics.get("plans_aborted",0),scene.diagnostics.get("fallback_waits",0)])
 		last_count=count
-	var completed_decisions:=int(scene.diagnostics.get("total_decisions",0)); var success:=completed_decisions>=target and not scene.harness.is_busy()
+	var completed_decisions:=int(scene.diagnostics.get("total_decisions",0)); var success:bool=completed_decisions>=target and not scene.harness.is_busy()
 	print("SOAK PASS" if success else "SOAK INCOMPLETE")
 	var integrity:=_check_integrity(scene)
 	print("State integrity: PASS" if integrity.is_empty() else "State integrity: FAIL")
