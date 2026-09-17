@@ -10,28 +10,35 @@ func _initialize() -> void:
 		if args[i]=="--decisions" and i+1<args.size(): target=max(1,int(args[i+1]))
 		if args[i]=="--max-seconds" and i+1<args.size(): max_seconds=max(1.0,float(args[i+1]))
 	var scene:Node=load("res://Main.tscn").instantiate(); get_root().add_child(scene)
+	var baseline_decisions:=int(scene.diagnostics.get("total_decisions",0))
+	print("Starting cumulative decisions: %d" % baseline_decisions)
+	print("Target new decisions: %d" % target)
 	var waited:=0.0
 	var last_count:=0
-	while waited<max_seconds and (int(scene.diagnostics.get("total_decisions",0))<target or scene.harness.is_busy() or scene.plan_executor.active):
+	while waited<max_seconds and (int(scene.diagnostics.get("total_decisions",0))-baseline_decisions<target or scene.harness.is_busy() or scene.plan_executor.active):
 		await create_timer(1.0).timeout; waited+=1.0
-		var count:=int(scene.diagnostics.get("total_decisions",0))
+		var count:=int(scene.diagnostics.get("total_decisions",0))-baseline_decisions
 		if count>0 and count%5==0 and count!=last_count:
 			print("[%d/%d] completed; plans completed: %d; plans aborted: %d; fallback waits: %d" % [count,target,scene.diagnostics.get("plans_completed",0),scene.diagnostics.get("plans_aborted",0),scene.diagnostics.get("fallback_waits",0)])
 		last_count=count
-	var completed_decisions:=int(scene.diagnostics.get("total_decisions",0)); var success:bool=completed_decisions>=target and not scene.harness.is_busy()
+	var ending_cumulative:=int(scene.diagnostics.get("total_decisions",0)); var completed_decisions:=ending_cumulative-baseline_decisions; var success:bool=completed_decisions>=target and not scene.harness.is_busy()
 	print("SOAK PASS" if success else "SOAK INCOMPLETE")
 	var integrity:=_check_integrity(scene)
 	print("State integrity: PASS" if integrity.is_empty() else "State integrity: FAIL")
 	for issue in integrity: print("- %s" % issue)
 	print("Target decisions: %d" % target)
-	print("Completed decisions: %d" % completed_decisions)
-	print("Decisions: %d" % int(scene.diagnostics.get("total_decisions",0)))
+	print("Ending cumulative decisions: %d" % ending_cumulative)
+	print("New decisions completed: %d" % completed_decisions)
 	print("Plans completed: %d" % int(scene.diagnostics.get("plans_completed",0)))
 	print("Plans aborted: %d" % int(scene.diagnostics.get("plans_aborted",0)))
 	print("Activities completed: %d" % scene.memory_store.entries.size())
 	print("Skills invoked: %d" % int(scene.diagnostics.get("skills_invoked",0)))
 	print("Skills completed: %d" % int(scene.diagnostics.get("skills_completed",0)))
 	print("Fallback waits: %d" % int(scene.diagnostics.get("fallback_waits",0)))
+	print("Schema repair attempts: %d" % int(scene.diagnostics.get("schema_repair_attempts",0)))
+	print("Semantic repair attempts: %d" % int(scene.diagnostics.get("semantic_repair_attempts",0)))
+	print("Repair recovered: %d" % int(scene.diagnostics.get("repair_recovered",0)))
+	print("Repair failed: %d" % int(scene.diagnostics.get("repair_failed",0)))
 	print("Memories stored: %d" % scene.memory_store.entries.size())
 	print("Skills stored: %d" % scene.skill_store.skills.size())
 	print("Crashes/errors: 0")

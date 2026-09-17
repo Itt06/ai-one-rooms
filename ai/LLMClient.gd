@@ -47,7 +47,7 @@ func _on_request_completed(result: int, code: int, _headers: PackedStringArray, 
 	var latency_ms := Time.get_ticks_msec() - _started_ms
 	var raw := body.get_string_from_utf8()
 	if result != HTTPRequest.RESULT_SUCCESS:
-		completed.emit(false, "", raw, "LLM transport error %s" % result, latency_ms)
+		completed.emit(false, "", raw, "timeout" if result == HTTPRequest.RESULT_TIMEOUT else "LLM transport error %s" % result, latency_ms)
 		return
 	if code < 200 or code >= 300:
 		completed.emit(false, "", raw, "LLM HTTP %s" % code, latency_ms)

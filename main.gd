@@ -37,7 +37,7 @@ var plan_moving := false
 var plan_history := PlanHistory.new()
 var skill_store := SkillStore.new()
 var current_skill_id := ""
-var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"tool_frequency":{}}
+var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"tool_frequency":{}}
 var decision_revision := 0
 
 func _ready() -> void:
@@ -46,6 +46,9 @@ func _ready() -> void:
 	harness = ResidentHarness.new()
 	add_child(harness)
 	harness.decision_failed.connect(_on_decision_failed)
+	harness.repair_attempted.connect(func(kind): diagnostics["%s_repair_attempts"%kind]=int(diagnostics.get("%s_repair_attempts"%kind,0))+1)
+	harness.repair_recovered.connect(func(): diagnostics["repair_recovered"]+=1)
+	harness.repair_failed.connect(func(): diagnostics["repair_failed"]+=1)
 	harness.plan_ready.connect(_on_plan_ready)
 	harness.skill_ready.connect(_on_skill_ready)
 	resident_state.render_position = _cell_to_position(resident_state.current_cell)
@@ -195,7 +198,10 @@ func _abort_plan(failure_reason:String)->void:
 func _on_decision_failed(error_message: String, latency_ms: int, raw_response: String) -> void:
 	last_latency_ms = latency_ms
 	last_response = raw_response
-	llm_status = "Ornith: Offline"
+	var lower_error:=error_message.to_lower()
+	if "timeout" in lower_error: llm_status="Ornith: Timeout"
+	elif "transport" in lower_error or "request error" in lower_error: llm_status="Ornith: Offline"
+	else: llm_status="Ornith: Connected - invalid response"
 	reason = "Resident is waiting for the local AI server."
 	_fallback(error_message)
 

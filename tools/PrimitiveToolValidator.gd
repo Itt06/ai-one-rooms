@@ -19,14 +19,15 @@ static func validate(step, room:RoomState, grid:RoomGrid, resident:Dictionary, i
 		if InteractionResolver.nearest_cell(room,target,resident.current_cell).get("ok",false)!=true:return _fail("target_unreachable")
 	if tool in ["sit","lie_down"]:
 		if tool=="sit" and target not in ["bed","chair"]:return _fail("invalid_posture_target")
-		if InteractionResolver.nearest_cell(room,target,resident.current_cell).get("ok",false)!=true:return _fail("target_not_reachable")
+		if not InteractionResolver.is_at_interaction_cell(room,target,resident.current_cell):return _fail("target_not_interactable_now")
 	if tool in ["move_object","rotate_object"]:
 		if not bool(room.objects[target].get("movable",false)):return _fail("object_not_movable")
-		if InteractionResolver.nearest_cell(room,target,resident.current_cell).get("ok",false)!=true:return _fail("target_not_reachable")
+		if not InteractionResolver.is_at_interaction_cell(room,target,resident.current_cell):return _fail("target_not_interactable_now")
 		if tool=="move_object" and (not _integer_number(args.x) or not _integer_number(args.y)):return _fail("destination_cell_must_be_integer")
 		if tool=="rotate_object" and int(args.rotation) not in [0,90,180,270]:return _fail("invalid_rotation")
 		if tool=="move_object" and not bool(room.validate_object_placement(target,Vector2i(int(args.x),int(args.y)),int(room.objects[target].get("rotation",0)),[resident.current_cell]).get("ok",false)):return _fail("invalid_placement")
 	if tool in ["open","close","turn_on","turn_off"] and tool not in room.objects[target].get("supported_tools",[]):return _fail("tool_not_supported")
+	if tool in ["open","close","turn_on","turn_off"] and not InteractionResolver.is_at_interaction_cell(room,target,resident.current_cell):return _fail("target_not_interactable_now")
 	if tool in ["open","turn_on"] and bool(room.objects[target].get("state",false)):return _fail("already_active")
 	if tool in ["close","turn_off"] and not bool(room.objects[target].get("state",false)):return _fail("already_inactive")
 	if tool in ["read","eat"]:
@@ -35,12 +36,12 @@ static func validate(step, room:RoomState, grid:RoomGrid, resident:Dictionary, i
 	if tool=="pick_up":
 		if resident.get("held_item_id","")!="" or str(items[target].get("location",""))=="held" or not bool(items[target].get("portable",false)) or int(items[target].get("quantity",1))<=0:return _fail("hands_or_item_invalid")
 		var container:=str(items[target].get("container",""))
-		if room.objects.has(container) and not bool(InteractionResolver.nearest_cell(room,container,resident.current_cell).get("ok",false)):return _fail("target_not_reachable")
+		if room.objects.has(container) and not InteractionResolver.is_at_interaction_cell(room,container,resident.current_cell):return _fail("item_requires_proximity_to_%s"%container)
 	if tool=="put_down":
 		if resident.get("held_item_id","")!=target or not _integer_number(args.x) or not _integer_number(args.y):return _fail("invalid_drop_args")
 		var drop:=Vector2i(int(args.x),int(args.y)); if not grid.is_inside(drop) or drop in room.blocked_cells() or drop==resident.current_cell:return _fail("drop_cell_blocked")
 	if definition.target=="object" and tool in ActivityCatalog.DEFINITIONS and tool not in ["move_near","inspect","move_object","rotate_object"]:
-		if InteractionResolver.nearest_cell(room,target,resident.current_cell).get("ok",false)!=true:return _fail("target_not_reachable")
+		if not InteractionResolver.is_at_interaction_cell(room,target,resident.current_cell):return _fail("target_not_interactable_now")
 	return {"ok":true,"step":step}
 
 static func _fail(error:String)->Dictionary:return {"ok":false,"error":error}

@@ -19,3 +19,9 @@ static func reachable_cells(room:RoomState, object_id:String, from_cell:Vector2i
 	for cell in room.objects[object_id].get("interaction_cells",[]):
 		if cell is Vector2i and room.grid.is_inside(cell) and not room.grid.find_path(from_cell,cell,room.blocked_cells()).is_empty(): result.append(cell)
 	return result
+
+static func is_at_interaction_cell(room:RoomState, object_id:String, resident_cell:Vector2i)->bool:
+	if not room.objects.has(object_id): return false
+	for cell in room.objects[object_id].get("interaction_cells",[]):
+		if cell == resident_cell: return true
+	return false
