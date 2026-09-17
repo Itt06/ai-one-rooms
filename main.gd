@@ -131,13 +131,13 @@ func _run_plan_step()->void:
 	var step:=plan_executor.current(); var resident_data={"current_cell":resident_state.current_cell,"held_item_id":resident_state.held_item_id}
 	var checked:=PrimitiveToolValidator.validate(step,room_state,room_state.grid,resident_data,room_state.items)
 	if not bool(checked.get("ok",false)):
-		validation_error=str(checked.get("error","tool rejected")); plan_executor.abort({"ok":false,"tool":step.get("tool",""),"error":validation_error}); status="idle"; decision_cooldown=0.5; return
+		_abort_plan(str(checked.get("error","tool rejected"))); return
 	var tool:=str(step.get("tool","")); var step_args:Dictionary=step.get("args",{}); var target:=str(step_args.get("target",""))
 	if tool=="move_near":
-		if not _begin_plan_move(target): plan_executor.abort({"ok":false,"tool":tool,"error":"target_unreachable"}); status="idle"; decision_cooldown=0.5
+		if not _begin_plan_move(target): _abort_plan("target_unreachable")
 		return
 	if tool=="move_to":
-		var args:Dictionary=step.get("args",{}); if not _begin_plan_move_cell(Vector2i(int(args.x),int(args.y))): plan_executor.abort({"ok":false,"tool":tool,"error":"destination_unreachable"}); status="idle"; decision_cooldown=0.5
+		var args:Dictionary=step.get("args",{}); if not _begin_plan_move_cell(Vector2i(int(args.x),int(args.y))): _abort_plan("destination_unreachable")
 		return
 	var result:=PrimitiveToolExecutor.execute(step,room_state,resident_state,needs_model); _complete_plan_step(result)
 
@@ -160,6 +160,12 @@ func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->vo
 		_record_history("plan_completed",plan_executor.plan_id,"",reason); status="idle"; decision_cooldown=0.5; _save_game()
 	else:
 		status="acting"; _run_plan_step()
+
+func _abort_plan(failure_reason:String)->void:
+	plan_executor.abort({"ok":false,"error":failure_reason})
+	plan_history.add(plan_executor.plan_id,plan_executor.reason,plan_executor.plan,plan_executor.results,false,clock.text(),clock.text(),"aborted",failure_reason)
+	if current_skill_id!="": skill_store.mark_used(current_skill_id,false)
+	current_skill_id=""; validation_error=failure_reason; status="idle"; decision_cooldown=0.5; _save_game()
 
 func _on_decision_failed(error_message: String, latency_ms: int, raw_response: String) -> void:
 	last_latency_ms = latency_ms
