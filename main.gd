@@ -17,6 +17,10 @@ var labels := {}
 var last_retrieved_memory_ids: Array = []
 var debug_panel: Panel
 var debug_label: Label
+var progress_bar: ProgressBar
+var config_data: Dictionary = DEFAULT_CONFIG.duplicate(true)
+var save_status := "Auto-save on"
+var llm_status := "Ornith: Offline"
 
 var clock := WorldClock.new()
 var room_state := RoomState.new()
@@ -37,6 +41,7 @@ var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_complet
 var decision_revision := 0
 
 func _ready() -> void:
+	config_data = _config()
 	_load_game()
 	harness = ResidentHarness.new()
 	add_child(harness)
@@ -99,7 +104,7 @@ func _request_decision() -> void:
 		_fallback("LLM request could not start")
 
 func _on_plan_ready(plan:Array, why:String, updates:Dictionary, latency_ms:int, raw_response:String)->void:
-	last_latency_ms=latency_ms; last_response=raw_response; _accept_plan(plan,why,updates,"")
+	last_latency_ms=latency_ms; last_response=raw_response; llm_status="Ornith: Connected"; _accept_plan(plan,why,updates,"")
 
 func _on_skill_ready(skill_id:String, why:String, updates:Dictionary, latency_ms:int, raw_response:String)->void:
 	last_latency_ms=latency_ms; last_response=raw_response
@@ -190,6 +195,8 @@ func _abort_plan(failure_reason:String)->void:
 func _on_decision_failed(error_message: String, latency_ms: int, raw_response: String) -> void:
 	last_latency_ms = latency_ms
 	last_response = raw_response
+	llm_status = "Ornith: Offline"
+	reason = "Resident is waiting for the local AI server."
 	_fallback(error_message)
 
 func _check_interrupt() -> void:
@@ -245,7 +252,7 @@ func _config() -> Dictionary:
 	return DEFAULT_CONFIG
 
 func _save_game() -> void:
-	SaveManager.save_state({
+	var saved:=SaveManager.save_state({
 		"sim_minutes":clock.total_minutes,
 		"needs":needs_model.values,
 		"room":room_state.serialize(),
@@ -260,6 +267,7 @@ func _save_game() -> void:
 		"diagnostics":diagnostics,
 		"resident_position":[resident_state.render_position.x,resident_state.render_position.y]
 	})
+	save_status = "Saved" if saved else "Save failed"
 
 func _load_game() -> void:
 	var data := SaveManager.load_state()
@@ -305,12 +313,17 @@ func _build_ui() -> void:
 	labels["reason"] = _label(Vector2(920,88),"",14); labels["reason"].size = Vector2(345,62)
 	labels["panel"] = _label(Vector2(920,155),"",13); labels["panel"].size = Vector2(345,345)
 	labels["history"] = _label(Vector2(920,505),"",12); labels["history"].size = Vector2(345,125)
+	labels["connection"] = _label(Vector2(920,130),"",13)
+	progress_bar = ProgressBar.new(); progress_bar.position=Vector2(920,430); progress_bar.size=Vector2(345,22); progress_bar.visible=false; add_child(progress_bar)
 	var save := Button.new(); save.text = "Save"; save.position = Vector2(920,660); save.pressed.connect(_save_game); add_child(save)
 	var pause := Button.new(); pause.text = "Pause"; pause.position = Vector2(985,660); pause.pressed.connect(func(): speed = 0.0 if speed > 0.0 else 1.0); add_child(pause)
 	var speeds := OptionButton.new(); speeds.position = Vector2(1060,660)
 	for x in [1,2,4,8]: speeds.add_item("%sx" % x)
 	speeds.item_selected.connect(func(i): speed = pow(2.0,i)); add_child(speeds)
 	var debug_button := Button.new(); debug_button.text = "Debug"; debug_button.position = Vector2(1160,660); debug_button.pressed.connect(_toggle_debug); add_child(debug_button)
+	var diary_button := Button.new(); diary_button.text = "Diary"; diary_button.position = Vector2(920,690); diary_button.pressed.connect(_show_diary); add_child(diary_button)
+	var settings_button := Button.new(); settings_button.text = "Settings"; settings_button.position = Vector2(985,690); settings_button.pressed.connect(_show_settings); add_child(settings_button)
+	var reset_button := Button.new(); reset_button.text = "New Life"; reset_button.position = Vector2(1070,690); reset_button.pressed.connect(_confirm_reset); add_child(reset_button)
 	debug_panel = Panel.new(); debug_panel.position = Vector2(35,35); debug_panel.size = Vector2(835,610); debug_panel.visible = false; debug_panel.z_index = 20; add_child(debug_panel)
 	debug_label = Label.new(); debug_label.position = Vector2(14,14); debug_label.size = Vector2(805,575); debug_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; debug_label.add_theme_font_size_override("font_size",12); debug_panel.add_child(debug_label)
 
@@ -325,6 +338,11 @@ func _update_ui() -> void:
 	labels["time"].text = clock.text()
 	labels["action"].text = "Activity: %s (%s)" % [activity_executor.activity_id if activity_executor.activity_id != "" else "idle",status]
 	labels["reason"].text = "Reason: " + reason
+	labels["connection"].text = llm_status + "   " + save_status
+	if progress_bar != null:
+		progress_bar.visible = activity_executor.is_active()
+		var definition:=ActivityCatalog.get_definition(activity_executor.activity_id)
+		progress_bar.max_value=float(definition.get("duration_minutes",1)); progress_bar.value=progress_bar.max_value-activity_executor.remaining_minutes
 	var text := "NEEDS\n"
 	for key in needs_model.values: text += "%s: %3d\n" % [key,int(needs_model.values[key])]
 	text += "\nROOM  clean:%d  food:%d  water:%d  trash:%d\n" % [int(room_state.cleanliness),room_state.item_quantity("simple_food"),int(room_state.resources.get("water",0)),int(room_state.resources.get("trash",0))]
@@ -368,6 +386,20 @@ func _activity_text()->String:
 
 func _cell_to_position(cell:Vector2i)->Vector2:
 	return RoomVisualAdapter.cell_to_position(cell)
+
+func _show_diary()->void:
+	var dialog:=AcceptDialog.new(); dialog.title="Diary"; var text:=""
+	for entry in diary.slice(0,min(8,diary.size())): text += "%s\n%s\n\n" % [entry.get("time",""),entry.get("text","")]
+	if text=="": text="No diary entries yet."
+	dialog.dialog_text=text; add_child(dialog); dialog.popup_centered(Vector2(460,360)); dialog.confirmed.connect(dialog.queue_free)
+
+func _show_settings()->void:
+	var dialog:=AcceptDialog.new(); dialog.title="Settings"; var box:=VBoxContainer.new(); var url:=LineEdit.new(); url.text=str(config_data.get("base_url",DEFAULT_CONFIG.base_url)); url.placeholder_text="LLM base URL"
+	var model:=LineEdit.new(); model.text=str(config_data.get("model",DEFAULT_CONFIG.model)); model.placeholder_text="Model name"
+	var auto:=CheckButton.new(); auto.text="Auto-save"; auto.button_pressed=bool(config_data.get("auto_save",true)); box.add_child(url);box.add_child(model);box.add_child(auto);dialog.add_child(box);add_child(dialog);dialog.confirmed.connect(func(): config_data["base_url"]=url.text;config_data["model"]=model.text;config_data["auto_save"]=auto.button_pressed;var f:=FileAccess.open("user://one_room_config.json",FileAccess.WRITE);if f:f.store_string(JSON.stringify(config_data));save_status="Auto-save on" if auto.button_pressed else "Auto-save off");dialog.popup_centered()
+
+func _confirm_reset()->void:
+	var dialog:=ConfirmationDialog.new(); dialog.title="Start a new life?";dialog.dialog_text="This will delete the current save.";add_child(dialog);dialog.confirmed.connect(func():DirAccess.remove_absolute(ProjectSettings.globalize_path(SaveManager.SAVE_PATH));get_tree().reload_current_scene());dialog.popup_centered()
 
 func _state_revision()->int:
 	return room_state.revision+resident_state.revision

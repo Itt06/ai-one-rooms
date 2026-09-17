@@ -152,3 +152,11 @@ The design goal is not to script a productive routine. Needs are pressures rathe
 The current branch adds `RoomGrid`, `ResidentState`, `PrimitiveToolCatalog`, `PrimitiveToolValidator`, `PrimitiveToolExecutor`, `PlanExecutor`, and `PlanHistory`. Ornith may return a short plan of up to six tools such as `move_near`, `pick_up`, `sit`, and `read`; each step is validated against the current authoritative world before the next step begins. `move_to` accepts integer grid cells only. Legacy high-level actions remain available as a compatibility path.
 
 Save schema version is now 4 and includes resident cell/posture/held item, object placement/state, item locations, diagnostics, and bounded plan history. The project still intentionally excludes towns, jobs, money, internet, OS control, shell execution, and other autonomous NPCs.
+
+For a production life-loop endurance run (requires Ornith at `127.0.0.1:8000`):
+
+```powershell
+godot --headless --path . --script res://tests/live_soak.gd -- --decisions 100
+```
+
+Activity execution is restored as idle after loading a save; persistent world and resident state are retained safely.
