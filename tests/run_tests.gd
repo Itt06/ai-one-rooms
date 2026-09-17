@@ -10,6 +10,7 @@ func _initialize() -> void:
 	_test_grid_and_primitives()
 	_test_skill_learning()
 	_test_decision_schema()
+	_test_object_manipulation()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -120,3 +121,17 @@ func _test_decision_schema() -> void:
 	_check(not bool(DecisionSchema.validate(valid_plan.merged({"skill":null})).get("ok",false)), "plan plus null skill should fail")
 	_check(not bool(DecisionSchema.validate({"tool":"wait","args":{}}).get("ok",false)), "missing decision type should fail")
 	_check(not bool(DecisionSchema.validate({"decision_type":"plan","reason":"x","plan":[{"tool":"wait","args":[]}],"goal_updates":{"add":[],"complete":[],"abandon":[]}}).get("ok",false)), "array args should fail")
+
+func _test_object_manipulation() -> void:
+	var room:=RoomState.new(); var needs:=ResidentNeeds.new(); var resident:=ResidentState.new(); resident.current_cell=room.objects.bookshelf.interaction_cells[0]
+	var pick:=PrimitiveToolValidator.validate({"tool":"pick_up","args":{"target":"book_01"}},room,room.grid,{"current_cell":resident.current_cell,"held_item_id":""},room.items)
+	_check(bool(pick.get("ok",false)), "near book pickup should validate")
+	PrimitiveToolExecutor.execute({"tool":"pick_up","args":{"target":"book_01"}},room,resident,needs)
+	_check(resident.held_item_id=="book_01" and room.items.book_01.location=="held", "pickup should update held state")
+	var drop:=PrimitiveToolValidator.validate({"tool":"put_down","args":{"target":"book_01","x":4,"y":4}},room,room.grid,{"current_cell":resident.current_cell,"held_item_id":"book_01"},room.items)
+	_check(bool(drop.get("ok",false)), "valid drop should validate")
+	PrimitiveToolExecutor.execute({"tool":"put_down","args":{"target":"book_01","x":4,"y":4}},room,resident,needs)
+	_check(resident.held_item_id=="" and room.items.book_01.grid_cell==Vector2i(4,4), "drop should update item location")
+	var moved:=room.move_object("chair",Vector2i(5,1),0); _check(bool(moved.get("ok",false)), "movable chair should move")
+	_check(room.objects.chair.origin_cell==Vector2i(5,1), "chair placement should change")
+	var rotated:=room.rotate_object("chair",90); _check(bool(rotated.get("ok",false)), "chair should rotate")

@@ -272,7 +272,7 @@ func _save_game() -> void:
 	SaveManager.save_state({
 		"sim_minutes":clock.total_minutes,
 		"needs":needs_model.values,
-		"room":{"resources":room_state.resources,"cleanliness":room_state.cleanliness,"light_on":room_state.light_on},
+		"room":room_state.serialize(),
 		"memory_store":memory_store.serialize(),
 		"goal_store":goal_store.serialize(),
 		"preferences":preferences.serialize(),
@@ -293,13 +293,7 @@ func _load_game() -> void:
 		for key in needs_model.values:
 			if loaded_needs.has(key): needs_model.values[key] = float(loaded_needs[key])
 	var room = data.get("room",{})
-	if room is Dictionary:
-		var loaded_resources = room.get("resources",{})
-		if loaded_resources is Dictionary:
-			for key in room_state.resources:
-				if loaded_resources.has(key): room_state.resources[key] = loaded_resources[key]
-		room_state.cleanliness = float(room.get("cleanliness",82.0))
-		room_state.light_on = bool(room.get("light_on",true))
+	if room is Dictionary: room_state.load_state(room)
 	memory_store.load_state(data.get("memory_store",{}))
 	goal_store.load_state(data.get("goal_store",{}))
 	preferences.load_state(data.get("preferences",{}))
@@ -359,7 +353,7 @@ func _update_ui() -> void:
 	text += "\nPREFERENCES\n"
 	var pref_summary := preferences.summary()
 	for key in pref_summary: text += "%s: %.2f\n" % [key,float(pref_summary[key])]
-	text += "\nLLM: %d ms" % last_latency_ms
+	text += "\nACTIVITY: %s\nCELL: [%d,%d]  POSTURE: %s\nHELD: %s\nLLM: %d ms" % [_activity_text(),resident_state.current_cell.x,resident_state.current_cell.y,resident_state.posture,resident_state.held_item_id if resident_state.held_item_id!="" else "none",last_latency_ms]
 	labels["panel"].text = text
 	var history_text := "RECENT\n"
 	for item in decision_history.slice(0,min(5,decision_history.size())):
@@ -372,9 +366,22 @@ func _update_ui() -> void:
 func _draw() -> void:
 	draw_rect(Rect2(0,0,900,720),Color("#263238"))
 	for id in room_state.objects:
-		var p: Vector2 = room_state.objects[id].position
-		draw_circle(p,8,Color("#8d6e63"))
+		var object:Dictionary=room_state.objects[id]; var p:Vector2=object.position
+		if object.has("origin_cell"): p=Vector2(70,70)+Vector2(object.origin_cell)*60.0
+		if bool(object.get("movable",false)): draw_rect(Rect2(p-Vector2(18,18),Vector2(36,36)),Color("#bcaaa4")); draw_string(ThemeDB.fallback_font,p-Vector2(14,24),str(id),HORIZONTAL_ALIGNMENT_LEFT,-1,10,Color.WHITE)
+		else: draw_circle(p,8,Color("#8d6e63"))
 	var resident_color := Color("#90caf9") if status == "thinking" else Color("#4fc3f7")
-	draw_circle(person_pos,24,resident_color)
+	if resident_state.posture=="lying": draw_rect(Rect2(person_pos-Vector2(30,12),Vector2(60,24)),resident_color)
+	else: draw_circle(person_pos,24,resident_color)
+	if resident_state.held_item_id!="": draw_circle(person_pos+Vector2(30,0),7,Color("#ffcc80")); draw_string(ThemeDB.fallback_font,person_pos+Vector2(38,5),resident_state.held_item_id,HORIZONTAL_ALIGNMENT_LEFT,-1,11,Color.WHITE)
+	if resident_state.posture=="sitting": draw_line(person_pos+Vector2(-15,20),person_pos+Vector2(15,20),Color("#37474f"),5)
+	if status in ["acting","moving"]: draw_circle(person_pos+Vector2(0,-34),6,Color("#fff176"))
 	if status == "acting": draw_circle(person_pos+Vector2(0,-34),6,Color("#fff176"))
 	draw_string(ThemeDB.fallback_font,person_pos+Vector2(-30,-32),"Resident",HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("#102027"))
+
+func _activity_text()->String:
+	if status=="moving":return "walking"
+	if resident_state.posture=="lying":return "lying / sleeping"
+	if resident_state.posture=="sitting":return "sitting"
+	if plan_executor.active:return "performing primitive"
+	return "waiting" if status=="idle" else status

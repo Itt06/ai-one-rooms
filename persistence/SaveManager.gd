@@ -1,7 +1,7 @@
 class_name SaveManager
 extends RefCounted
 
-const SAVE_VERSION := 3
+const SAVE_VERSION := 4
 const SAVE_PATH := "user://one_room_save.json"
 
 static func save_state(state: Dictionary) -> bool:
@@ -41,7 +41,7 @@ static func _migrate_legacy(data: Dictionary) -> Dictionary:
 		"preferences": {},
 		"diary": data.get("diary", []),
 		"decision_history": [],
-		"resident_position": [420.0, 390.0], "skills": {"skills":[],"candidate_stats":{}}
+		"resident_position": [420.0, 390.0], "resident_state": {}, "skills": {"skills":[],"candidate_stats":{}}, "plan_history": []
 	}
 	for goal in data.get("goals", []):
 		migrated.goal_store.goals.append({"id": "goal_%04d" % (migrated.goal_store.goals.size() + 1), "text": str(goal), "status": "active"})

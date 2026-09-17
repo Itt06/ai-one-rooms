@@ -5,7 +5,7 @@ var cleanliness := 82.0
 var light_on := true
 var grid := RoomGrid.new()
 var items := {
-	"book_01":{"id":"book_01","type":"book","display_name":"Book","location":"bookshelf","held_by":"","container":"bookshelf","portable":true,"properties":{"readable":true}},
+	"book_01":{"id":"book_01","type":"book","display_name":"Book","location":"bookshelf","held_by":"","container":"bookshelf","grid_cell":Vector2i(2,2),"rotation":0,"size":Vector2i(1,1),"blocks_movement":false,"portable":true,"properties":{"readable":true}},
 	"food_01":{"id":"food_01","type":"simple_food","display_name":"Simple food","location":"fridge","held_by":"","container":"fridge","portable":true,"properties":{"edible":true}}
 }
 var resources := {"water":6,"simple_food":5,"book":1,"trash":0}
@@ -30,6 +30,8 @@ func _init() -> void:
 	for id in placements:
 		objects[id]["origin_cell"] = placements[id]; objects[id]["occupied_cells"] = [placements[id]]; objects[id]["interaction_cells"] = [placements[id]+Vector2i(0,1)]; objects[id]["rotation"] = 0; objects[id]["movable"] = false; objects[id]["blocks_movement"] = false
 		objects[id]["interaction_point"] = Vector2(70,70) + Vector2(placements[id]) * 60.0
+	objects["chair"]["movable"] = true; objects["trash_bin"]["movable"] = true
+	objects["chair"]["blocks_movement"] = true; objects["trash_bin"]["blocks_movement"] = true
 
 func advance(minutes: float) -> void:
 	cleanliness = clamp(cleanliness - minutes * 0.006, 0.0, 100.0)
@@ -43,12 +45,65 @@ func visible_objects() -> Array:
 		var object:Dictionary=objects[id]; result.append({"id":id,"type":object.get("type",id),"name":object.display_name,"cells":_cells_for(object),"interaction_cells":object.get("interaction_cells",[])})
 	return result
 
+func serialize()->Dictionary:
+	var placement:Dictionary={}
+	for id in objects: placement[id]={"origin_cell":[objects[id].origin_cell.x,objects[id].origin_cell.y],"rotation":objects[id].get("rotation",0),"state":objects[id].get("state",false)}
+	return {"cleanliness":cleanliness,"light_on":light_on,"resources":resources.duplicate(true),"items":items.duplicate(true),"objects":placement}
+
+func load_state(data)->void:
+	if not data is Dictionary:return
+	cleanliness=float(data.get("cleanliness",cleanliness)); light_on=bool(data.get("light_on",light_on))
+	if data.get("resources",{}) is Dictionary: resources.merge(data.resources,true)
+	if data.get("items",{}) is Dictionary: items.merge(data.items,true)
+	for id in data.get("objects",{}):
+		if objects.has(id) and data.objects[id] is Dictionary:
+			var c=data.objects[id].get("origin_cell",[]); if c is Array and c.size()>=2: objects[id].origin_cell=Vector2i(int(c[0]),int(c[1]))
+			objects[id].rotation=int(data.objects[id].get("rotation",0)); objects[id].state=data.objects[id].get("state",false); _recalculate_placement(objects[id])
+
 func blocked_cells() -> Array:
 	var result:Array=[]
 	for id in objects:
 		if bool(objects[id].get("blocks_movement",false)):
 			for cell in objects[id].get("occupied_cells",[]): result.append(cell)
 	return result
+
+func move_object(object_id:String, origin:Vector2i, rotation:int)->Dictionary:
+	if not objects.has(object_id) or not bool(objects[object_id].get("movable",false)): return {"ok":false,"error":"object_not_movable"}
+	var object:Dictionary=objects[object_id]; var old_origin:Vector2i=object.origin_cell; var old_rotation:int=object.rotation
+	object.origin_cell=origin; object.rotation=rotation; _recalculate_placement(object)
+	for cell in object.occupied_cells:
+		if not grid.is_inside(cell) or cell in blocked_cells_excluding(object_id) or cell==Vector2i(5,6): object.origin_cell=old_origin; object.rotation=old_rotation; _recalculate_placement(object); return {"ok":false,"error":"placement_collision_or_escape"}
+	return {"ok":true,"object":object_id,"origin_cell":[origin.x,origin.y],"rotation":rotation}
+
+func rotate_object(object_id:String, rotation:int)->Dictionary:
+	if rotation not in [0,90,180,270]: return {"ok":false,"error":"invalid_rotation"}
+	if not objects.has(object_id): return {"ok":false,"error":"object_not_found"}
+	return move_object(object_id,objects[object_id].origin_cell,rotation)
+
+func validate_object_placement(object_id:String, origin:Vector2i, rotation:int)->Dictionary:
+	if not objects.has(object_id) or not bool(objects[object_id].get("movable",false)): return {"ok":false,"error":"object_not_movable"}
+	var size:=Vector2i(1,1); if object_id=="bed":size=Vector2i(2,2)
+	if rotation in [90,270]:size=Vector2i(size.y,size.x)
+	var cells:Array=[]; for y in size.y: for x in size.x: cells.append(origin+Vector2i(x,y))
+	for cell in cells:
+		if not grid.is_inside(cell) or cell in blocked_cells_excluding(object_id) or cell==Vector2i(5,6): return {"ok":false,"error":"placement_collision_or_escape"}
+	return {"ok":true}
+
+func blocked_cells_excluding(excluded:String)->Array:
+	var result:Array=[]
+	for id in objects:
+		if id==excluded:continue
+		if bool(objects[id].get("blocks_movement",false)):
+			for cell in objects[id].get("occupied_cells",[]):result.append(cell)
+	return result
+
+func _recalculate_placement(object:Dictionary)->void:
+	var origin:Vector2i=object.origin_cell; var size:Vector2i=Vector2i(1,1)
+	if object.id=="bed":size=Vector2i(2,2)
+	if int(object.rotation) in [90,270]:size=Vector2i(size.y,size.x)
+	object.occupied_cells=[]; for y in size.y: for x in size.x: object.occupied_cells.append(origin+Vector2i(x,y))
+	object.interaction_cells=[origin+Vector2i(0,size.y)]
+	object.interaction_point=Vector2(70,70)+Vector2(object.interaction_cells[0])*60.0
 
 func _cells_for(object:Dictionary)->Array:
 	var out:Array=[]
