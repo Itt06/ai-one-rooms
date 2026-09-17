@@ -15,6 +15,7 @@ func _initialize() -> void:
 	_test_affordances_and_reachability()
 	_test_save_round_trip_and_migration()
 	_test_harness_authoritative_snapshot()
+	_test_v11_life_loop()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -201,6 +202,20 @@ func _test_harness_authoritative_snapshot() -> void:
 	_check(bool(result.get("ok",false)), "Harness should accept a held-book plan from authoritative snapshot")
 	_check(harness._resident_snapshot.get("held_item_id","")=="book_01" and harness._resident_snapshot.get("posture","")=="sitting", "Harness snapshot should preserve held item and posture")
 	harness.free()
+
+func _test_v11_life_loop() -> void:
+	var habits:=HabitStore.new(); var event:={"activity":"read","target":"bed","time_hour":20,"result":{"success":true},"need_delta":{"boredom":-20.0,"stress":-4.0}}
+	for i in 4: habits.record(event)
+	_check(habits.habits.size()==1 and habits.summary().size()==1, "repeated successful context should form a habit")
+	_check(habits.summary().size()==1, "habit must remain observation-only")
+	var memory:=MemoryStore.new(); memory.add_life_event(event)
+	_check(memory.entries.size()==1 and memory.entries[0].get("activity","")=="read" and memory.entries[0].has("need_effects"), "LifeEvent should create one structured memory")
+	var valid_intent={"decision_type":"plan","reason":"read","intention":"I want to read.","plan":[{"tool":"wait","args":{}}],"goal_updates":{"add":[],"complete":[],"abandon":[]}}
+	_check(bool(DecisionSchema.validate(valid_intent).get("ok",false)), "short intention should be accepted")
+	var invalid_intent:=valid_intent.duplicate(true); invalid_intent["intention"]=123
+	_check(not bool(DecisionSchema.validate(invalid_intent).get("ok",false)), "non-string intention should be rejected")
+	var migrated:=SaveManager._migrate_versioned({"save_version":2},2)
+	_check(migrated.has("habits") and migrated.has("recent_activity_history") and migrated.has("memory_store"), "v1.1 state should be added during migration")
 
 func _test_save_round_trip_and_migration() -> void:
 	var room:=RoomState.new(); room.objects.chair.state=true; room.move_object("chair",Vector2i(5,1),0); room.items.food_stack.quantity=2

@@ -56,5 +56,10 @@ static func _migrate_versioned(data:Dictionary, from_version:int)->Dictionary:
 	if not migrated.has("resident_state"):migrated["resident_state"]={}
 	if not migrated.has("plan_history"):migrated["plan_history"]=[]
 	if not migrated.has("skills"):migrated["skills"]={"skills":[],"candidate_stats":{}}
+	if not migrated.has("habits"):migrated["habits"]={"habits":[]}
+	if not migrated.has("recent_activity_history"):migrated["recent_activity_history"]=[]
+	if not migrated.has("memory_store"):migrated["memory_store"]={"next_id":1,"entries":[]}
+	if not migrated.has("preferences"):migrated["preferences"]={}
+	if not migrated.has("diary"):migrated["diary"]=[]
 	if not migrated.has("diagnostics"):migrated["diagnostics"]={}
 	return migrated
