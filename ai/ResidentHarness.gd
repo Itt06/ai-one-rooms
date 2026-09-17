@@ -8,6 +8,7 @@ signal skill_ready(skill_id: String, reason: String, goal_updates: Dictionary, l
 signal repair_attempted(kind: String)
 signal repair_recovered()
 signal repair_failed()
+signal validation_failed(kind: String, error: String, is_repair_response: bool)
 
 var client: LLMClient
 var _observation: Dictionary = {}
@@ -63,6 +64,7 @@ func _on_client_completed(success: bool, content: String, raw_response: String, 
 		else: skill_ready.emit(str(parsed.skill.id),str(parsed.reason),parsed.goal_updates,latency_ms,raw_response)
 		return
 	var validation_error := str(schema.get("error","invalid response"))
+	validation_failed.emit("schema",validation_error,_repair_attempted)
 	if not _repair_attempted:
 		_repair_attempted = true
 		repair_attempted.emit("schema")
@@ -73,6 +75,7 @@ func _on_client_completed(success: bool, content: String, raw_response: String, 
 	decision_failed.emit(validation_error,latency_ms,raw_response)
 
 func _handle_invalid(kind:String, error_message:String, latency_ms:int, raw_response:String)->void:
+	validation_failed.emit(kind,error_message,_repair_attempted)
 	if not _repair_attempted:
 		_repair_attempted=true
 		repair_attempted.emit("semantic")
