@@ -19,7 +19,7 @@ var objects := {
 	"shower":{"id":"shower","display_name":"Shower","position":Vector2(610,145),"interaction_point":Vector2(560,210),"supported_actions":["take_shower","inspect_object"]},
 	"toilet":{"id":"toilet","display_name":"Toilet","position":Vector2(740,400),"interaction_point":Vector2(700,430),"supported_actions":["use_toilet","inspect_object"]},
 	"bookshelf":{"id":"bookshelf","display_name":"Bookshelf","position":Vector2(160,170),"interaction_point":Vector2(270,230),"supported_actions":["read_book","inspect_object"]},
-	"pc":{"id":"pc","display_name":"PC","position":Vector2(460,410),"interaction_point":Vector2(460,455),"state":false,"supported_actions":["use_pc","order_groceries","inspect_object"]},
+	"pc":{"id":"pc","type":"pc","display_name":"PC","position":Vector2(460,410),"interaction_point":Vector2(460,455),"state":false,"supported_actions":["use_pc","order_groceries","inspect_object"]},
 	"phone":{"id":"phone","display_name":"Phone","position":Vector2(520,455),"interaction_point":Vector2(500,485),"supported_actions":["call_friend","order_groceries","inspect_object"]},
 	"tv":{"id":"tv","display_name":"TV","position":Vector2(435,170),"interaction_point":Vector2(435,260),"state":false,"supported_actions":["watch_tv","inspect_object"]},
 	"window":{"id":"window","display_name":"Window","position":Vector2(410,80),"interaction_point":Vector2(410,120),"supported_actions":["look_out_window","inspect_object"]},

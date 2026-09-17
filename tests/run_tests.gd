@@ -16,6 +16,7 @@ func _initialize() -> void:
 	_test_save_round_trip_and_migration()
 	_test_harness_authoritative_snapshot()
 	_test_v11_life_loop()
+	_test_timed_activity_lifecycle()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -216,6 +217,31 @@ func _test_v11_life_loop() -> void:
 	_check(not bool(DecisionSchema.validate(invalid_intent).get("ok",false)), "non-string intention should be rejected")
 	var migrated:=SaveManager._migrate_versioned({"save_version":2},2)
 	_check(migrated.has("habits") and migrated.has("recent_activity_history") and migrated.has("memory_store"), "v1.1 state should be added during migration")
+
+func _test_timed_activity_lifecycle() -> void:
+	var room:=RoomState.new(); var needs:=ResidentNeeds.new(); var resident:=ResidentState.new(); resident.current_cell=room.objects["bed"].interaction_cells[0]
+	var plan:=PlanExecutor.new(); plan.begin([{"tool":"sleep","args":{"target":"bed"}}],"sleep")
+	var executor:=ActivityExecutor.new(); var started:=executor.begin("sleep","bed","sleep",room,needs,resident)
+	_check(bool(started.get("ok",false)), "sleep should begin through production ActivityExecutor")
+	_check(executor.state_name()=="starting" and plan.current().get("tool","")=="sleep", "PlanExecutor must not advance a timed activity at begin")
+	_check(not bool(executor.update(119.0).get("completed",false)), "sleep should remain active before duration")
+	_check(bool(executor.update(1.0).get("completed",false)) and executor.state_name()=="completed", "sleep should reach completed after duration")
+	var before:=needs.values.duplicate(true); var result:=executor.complete(room,needs,resident)
+	_check(bool(result.get("ok",false)) and float(needs.values.sleepiness)<float(before.sleepiness), "sleep completion should apply authoritative effect")
+	_check(plan.advance(result), "PlanExecutor should advance only after ActivityExecutor completion")
+	var event:=LifeEvent.activity_completed("Day 1 10:00","sleep","bed",resident.current_cell,120.0,before,needs.values,{"posture":"lying"})
+	var memories:=MemoryStore.new(); var prefs:=PreferenceStore.new(); var habits:=HabitStore.new(); memories.add_life_event(event); prefs.record_life_event(event); habits.record(event)
+	_check(memories.entries.size()==1 and memories.entries[0].get("activity","")=="sleep", "completed sleep should create a LifeEvent memory")
+	_check(prefs.counts.get("sleep",0)==1 and habits.habits.size()==1, "LifeEvent should reach preference and habit evidence")
+	room.objects["pc"].state=false; resident.current_cell=room.objects["pc"].interaction_cells[0]
+	var pc:=ActivityExecutor.new(); var off:=pc.begin("use_pc","pc","pc",room,needs,resident)
+	_check(not bool(off.get("ok",false)), "PC use should fail while powered off")
+	PrimitiveToolExecutor.execute({"tool":"turn_on","args":{"target":"pc"}},room,resident,needs)
+	var pc_started:=pc.begin("use_pc","pc","pc",room,needs,resident)
+	_check(bool(pc_started.get("ok",false)) and not bool(pc.update(59.0).get("completed",false)), "PC activity should remain running")
+	_check(bool(pc.update(1.0).get("completed",false)) and bool(pc.complete(room,needs,resident).get("ok",false)), "PC activity should complete after duration")
+	var interrupted:=ActivityExecutor.new(); interrupted.begin("wait","","wait",room,needs,resident); var stopped:=interrupted.interrupt("test interruption")
+	_check(bool(stopped.get("ok",false)) and interrupted.state_name()=="interrupted" and not bool(interrupted.complete(room,needs,resident).get("ok",false)), "interrupted activity must not report success")
 
 func _test_save_round_trip_and_migration() -> void:
 	var room:=RoomState.new(); room.objects.chair.state=true; room.move_object("chair",Vector2i(5,1),0); room.items.food_stack.quantity=2
