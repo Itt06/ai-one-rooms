@@ -11,6 +11,8 @@ const DEFINITIONS := {
 	"sit":{"display_name":"Sit","target_type":"object","duration_minutes":10.0,"effects":{"discomfort":-2.0}},
 	"read_book":{"display_name":"Read a book","target_type":"object","duration_minutes":30.0,"effects":{"boredom":-35.0,"stress":-5.0}},
 	"use_pc":{"display_name":"Use PC","target_type":"object","duration_minutes":60.0,"effects":{"boredom":-25.0,"stress":3.0}},
+	"call_friend":{"display_name":"Call a friend","target_type":"object","duration_minutes":20.0,"effects":{"loneliness":-50.0,"stress":-5.0,"boredom":-8.0}},
+	"order_groceries":{"display_name":"Order groceries","target_type":"object","duration_minutes":10.0,"effects":{"resource.simple_food":6}},
 	"watch_tv":{"display_name":"Watch TV","target_type":"object","duration_minutes":45.0,"effects":{"boredom":-30.0}},
 	"look_out_window":{"display_name":"Look out window","target_type":"object","duration_minutes":15.0,"effects":{"boredom":-8.0,"stress":-2.0}},
 	"clean_room":{"display_name":"Clean room","target_type":"object","duration_minutes":30.0,"effects":{"discomfort":-20.0}},
@@ -30,8 +32,11 @@ static func candidates(room: RoomState) -> Array:
 			continue
 		for object_id in room.objects:
 			var object: Dictionary = room.objects[object_id]
-			if id in object.get("supported_actions", []):
-				result.append(_candidate(id, definition, str(object_id), str(object.get("display_name", object_id))))
+			if id not in object.get("supported_actions", []):
+				continue
+			if id == "drink_water" and object_id == "fridge" and int(room.resources.get("water",0)) <= 0:
+				continue
+			result.append(_candidate(id, definition, str(object_id), str(object.get("display_name", object_id))))
 	return result
 
 static func _candidate(id: String, definition: Dictionary, target_id: String, target_name: String) -> Dictionary:
@@ -46,12 +51,12 @@ static func _candidate(id: String, definition: Dictionary, target_id: String, ta
 static func _requirements_met(id: String, room: RoomState) -> bool:
 	if id == "eat_food" and int(room.resources.get("simple_food", 0)) <= 0:
 		return false
-	if id == "drink_water" and int(room.resources.get("water", 0)) <= 0:
-		return false
 	if id == "read_book" and int(room.resources.get("book", 0)) <= 0:
 		return false
 	if id == "take_out_trash" and int(room.resources.get("trash", 0)) <= 0:
 		return false
 	if id == "clean_room" and float(room.cleanliness) >= 97.0:
+		return false
+	if id == "order_groceries" and int(room.resources.get("simple_food",0)) > 2:
 		return false
 	return true
