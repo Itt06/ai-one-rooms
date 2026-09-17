@@ -39,6 +39,15 @@ func update(elapsed_minutes:float)->Dictionary:
 func complete(room:RoomState,needs:ResidentNeeds,resident:ResidentState,diary_text:String="")->Dictionary:
 	if state!=State.COMPLETED:return {"ok":false,"error":"activity_not_completed"}
 	var definition:=ActivityCatalog.get_definition(activity_id); var effects:Dictionary=definition.get("effects",{}).duplicate(true)
+	var social_result:=""
+	if activity_id=="call_friend":
+		var outcomes:Array=["good_conversation","short_conversation","no_answer"]
+		var outcome:String=str(outcomes[(started_cell.x+started_cell.y+int(before_needs.get("loneliness",0.0)))%3])
+		social_result=outcome
+		if outcome=="short_conversation":
+			effects["loneliness"]=-25.0; effects["stress"]=-2.0
+		elif outcome=="no_answer":
+			effects["loneliness"]=-4.0; effects["stress"]=2.0; effects["boredom"]=0.0
 	var novelty:=1.0
 	if activity_id in ["read","watch_tv","look_out_window"]: novelty=clamp(1.0-float(repetition_count)*0.12,0.55,1.0)
 	for key in ["boredom","stress"]:
@@ -59,6 +68,7 @@ func complete(room:RoomState,needs:ResidentNeeds,resident:ResidentState,diary_te
 	if activity_id=="eat": room.resources["trash"]=int(room.resources.get("trash",0))+1
 	if activity_id=="order_groceries": room.resources["trash"]=int(room.resources.get("trash",0))+1
 	var result:Dictionary={"ok":true,"activity":activity_id,"target":target_id,"duration_minutes":float(definition.duration_minutes),"before_needs":before_needs,"after_needs":needs.values.duplicate(true),"result":"completed","location":[started_cell.x,started_cell.y]}
+	if social_result!="": result["social_result"]=social_result
 	if activity_id=="write_diary": result["diary_text"]=diary_text
 	reset()
 	return result
