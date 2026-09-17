@@ -28,6 +28,7 @@ var needs_model := ResidentNeeds.new()
 var memory_store := MemoryStore.new()
 var goal_store := GoalStore.new()
 var preferences := PreferenceStore.new()
+var habit_store := HabitStore.new()
 var activity_executor := ActivityExecutor.new()
 var harness: ResidentHarness
 var resident_state := ResidentState.new()
@@ -98,7 +99,7 @@ func _request_decision() -> void:
 	for memory in memories:
 		last_retrieved_memory_ids.append(str(memory.get("id","")))
 	var available_skills:=skill_store.relevant(room_state,resident_state.held_item_id,needs_model.values)
-	var observation := ObservationBuilder.build(clock,needs_model,room_state,resident_state.render_position,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,preferences.habit_summary(),{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},available_skills,_recent_behavior())
+	var observation := ObservationBuilder.build(clock,needs_model,room_state,resident_state.render_position,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,{"habits":habit_store.summary()},{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},available_skills,_recent_behavior())
 	last_observation = JSON.stringify(observation)
 	status = "thinking"
 	validation_error = ""
@@ -179,6 +180,7 @@ func _finish_activity()->void:
 	var event:=LifeEvent.activity_completed(clock.text(),id,target,activity_executor.started_cell,float(result.get("duration_minutes",0.0)),before,after,{"posture":resident_state.posture,"posture_target":resident_state.posture_target_id,"held_item":resident_state.held_item_id,"time_of_day":clock.snapshot().get("hour",0)},str(result.get("result","completed")))
 	event["time_hour"]=int(clock.snapshot().get("hour",0)); event["salience"]=clamp(0.35+abs(improvement)/100.0,0.35,0.9)
 	preferences.record_life_event(event)
+	habit_store.record(event)
 	memory_store.add_life_event(event)
 	if id=="write_diary":
 		diary.push_front({"time":clock.text(),"text":str(result.get("diary_text",diary_text)).left(500)})
@@ -266,6 +268,7 @@ func _save_game() -> void:
 		"memory_store":memory_store.serialize(),
 		"goal_store":goal_store.serialize(),
 		"preferences":preferences.serialize(),
+		"habits":habit_store.serialize(),
 		"diary":diary,
 		"decision_history":decision_history,
 		"resident_state":resident_state.serialize(),
@@ -289,6 +292,7 @@ func _load_game() -> void:
 	memory_store.load_state(data.get("memory_store",{}))
 	goal_store.load_state(data.get("goal_store",{}))
 	preferences.load_state(data.get("preferences",{}))
+	habit_store.load_state(data.get("habits",{}))
 	var loaded_diary = data.get("diary",[])
 	if loaded_diary is Array: diary = loaded_diary.duplicate(true)
 	var loaded_history = data.get("decision_history",[])
