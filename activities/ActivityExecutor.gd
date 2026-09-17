@@ -23,6 +23,8 @@ func begin(id:String,target:String,why:String,room:RoomState,needs:ResidentNeeds
 	if definition.has("target_type"):
 		var target_data:Dictionary=room.objects.get(target,room.items.get(target,{}))
 		if str(target_data.get("type",target))!=str(definition.target_type): state=State.FAILED; return {"ok":false,"error":"target_type_mismatch"}
+	if bool(definition.get("consumes_item",false)) and int(room.items.get(target,{}).get("quantity",0))<=0:
+		state=State.FAILED; return {"ok":false,"error":"item_unavailable"}
 	if definition.target_kind=="object" and not InteractionResolver.is_at_interaction_cell(room,target,resident.current_cell): state=State.FAILED; return {"ok":false,"error":"target_not_interactable_now"}
 	if id in ["use_pc","watch_tv","order_groceries"] and target in ["pc","tv"] and not bool(room.objects[target].get("state",false)): state=State.FAILED; return {"ok":false,"error":"target_is_off"}
 	if id=="drink" and target=="fridge" and not bool(room.objects[target].get("state",false)): state=State.FAILED; return {"ok":false,"error":"fridge_closed"}

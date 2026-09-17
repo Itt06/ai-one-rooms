@@ -40,7 +40,7 @@ var plan_moving := false
 var plan_history := PlanHistory.new()
 var skill_store := SkillStore.new()
 var current_skill_id := ""
-var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"activity_types_requested":{},"activity_interruption_reasons":{},"primitive_only_plans":0,"plans_with_activity":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"food_consumed":0,"groceries_ordered":0,"trash_generated":0,"trash_removed":0,"cleaning_activities":0,"sleep_completed":0,"tool_frequency":{}}
+var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"activity_types_requested":{},"activity_interruption_reasons":{},"activity_interruption_records":[],"primitive_only_plans":0,"plans_with_activity":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"food_consumed":0,"groceries_ordered":0,"trash_generated":0,"trash_removed":0,"cleaning_activities":0,"sleep_completed":0,"tool_frequency":{}}
 var decision_revision := 0
 
 func _ready() -> void:
@@ -64,7 +64,11 @@ func _process(delta: float) -> void:
 	var elapsed_minutes := delta * speed * 2.0
 	if status != "thinking" and speed > 0.0:
 		clock.advance(delta,speed)
-		needs_model.advance(elapsed_minutes)
+		var suppressed:Array=[]
+		if activity_executor.is_active():
+			var suppress_by_activity={"drink":["thirst"],"eat":["hunger"],"sleep":["sleepiness"],"take_shower":["hygiene_need"],"use_toilet":["toilet_need"],"clean":["discomfort"]}
+			suppressed=suppress_by_activity.get(activity_executor.activity_id,[])
+		needs_model.advance(elapsed_minutes,suppressed)
 		room_state.advance(elapsed_minutes)
 		if room_state.cleanliness < 40.0:
 			needs_model.apply({"discomfort":elapsed_minutes * 0.001})
@@ -234,6 +238,7 @@ func _check_interrupt() -> void:
 	var severe_discomfort := float(needs_model.values.get("discomfort",0.0)) >= 98.0
 	if severe_thirst or severe_toilet or severe_sleep or severe_discomfort:
 		var interruption_reason:="severe_discomfort" if severe_discomfort else ("severe_thirst" if severe_thirst else ("severe_toilet" if severe_toilet else "severe_sleep"))
+		var records:Array=diagnostics.get("activity_interruption_records",[]); records.append({"activity":activity_executor.activity_id,"target":activity_executor.target_id,"reason":interruption_reason,"start_needs":activity_executor.before_needs.duplicate(true),"interruption_needs":needs_model.values.duplicate(true),"elapsed_minutes":float(ActivityCatalog.get_definition(activity_executor.activity_id).get("duration_minutes",0.0))-activity_executor.remaining_minutes}); if records.size()>100:records.pop_front(); diagnostics["activity_interruption_records"]=records
 		var reasons:Dictionary=diagnostics.get("activity_interruption_reasons",{}); reasons[interruption_reason]=int(reasons.get(interruption_reason,0))+1; diagnostics["activity_interruption_reasons"]=reasons
 		var interrupted := activity_executor.interrupt("A critical physical need interrupted the activity.")
 		if bool(interrupted.get("ok",false)):

@@ -264,14 +264,21 @@ func _test_multiday_world_dynamics() -> void:
 	var needs:=ResidentNeeds.new(); var start:=needs.snapshot(); needs.advance(1440.0)
 	_check(float(needs.values.hunger)<=100.0 and float(needs.values.thirst)<=100.0 and float(needs.values.hunger)>float(start.hunger), "24h needs progression should be bounded")
 	var long_needs:=ResidentNeeds.new(); long_needs.advance(4320.0); _check(float(long_needs.values.discomfort)<100.0, "discomfort should not force a multi-day death spiral")
+	var focused:=ResidentNeeds.new(); var thirst_before:float=float(focused.values.thirst); focused.advance(60.0,["thirst"]); _check(focused.values.thirst==thirst_before, "active drinking should not grow thirst during the activity")
 	var room:=RoomState.new(); var resident:=ResidentState.new(); resident.current_cell=room.objects.fridge.interaction_cells[0]; room.objects.fridge.state=true
+	resident.held_item_id="food_stack"; room.items.food_stack.location="held"; room.items.food_stack.held_by="resident"; room.items.food_stack.container=null
 	var eater:=ActivityExecutor.new(); var eat_started:=eater.begin("eat","food_stack","eat",room,needs,resident); _check(bool(eat_started.ok), "eating should start with stock")
 	eater.update(15.0); var food_before:=room.item_quantity("simple_food"); var eat_result:=eater.complete(room,needs,resident); _check(bool(eat_result.ok) and room.item_quantity("simple_food")==food_before-1 and int(room.resources.trash)==1, "eating should consume food and create trash")
+	_check(resident.held_item_id=="food_stack" and room.items.food_stack.held_by=="resident", "remaining held food stack should preserve ownership")
 	room.objects.pc.state=true; resident.current_cell=room.objects.pc.interaction_cells[0]
 	var grocer:=ActivityExecutor.new(); grocer.begin("order_groceries","pc","order",room,needs,resident); grocer.update(10.0); grocer.complete(room,needs,resident); _check(room.item_quantity("simple_food")>food_before-1, "groceries should replenish stock")
 	var dirty:=room.cleanliness; room.advance(1440.0); _check(room.cleanliness<dirty, "cleanliness should decline gradually")
 	var five_day_room:=RoomState.new(); five_day_room.advance(7200.0); _check(five_day_room.cleanliness>0.0, "cleanliness should remain gradual across several days")
+	var dry:=RoomState.new(); var dry_resident:=ResidentState.new(); dry_resident.current_cell=dry.objects.fridge.interaction_cells[0]; dry.objects.fridge.state=true; dry.items.food_stack.quantity=0; var dry_eat:=ActivityExecutor.new(); _check(not bool(dry_eat.begin("eat","food_stack","eat",dry,needs,dry_resident).get("ok",false)), "eating with no food must be rejected")
 	room.resources.trash=3; var cleaner:=ActivityExecutor.new(); resident.current_cell=room.objects.sink.interaction_cells[0]; cleaner.begin("clean","sink","clean",room,needs,resident); cleaner.update(30.0); cleaner.complete(room,needs,resident); _check(room.cleanliness>dirty-10.0, "cleaning should improve cleanliness")
+	var remover:=ActivityExecutor.new(); resident.current_cell=room.objects.trash_bin.interaction_cells[0]; remover.begin("take_out_trash","trash_bin","remove",room,needs,resident); remover.update(15.0); remover.complete(room,needs,resident); _check(int(room.resources.trash)==0, "taking out trash should remove accumulated trash")
+	var reader:=ActivityExecutor.new(); resident.current_cell=room.objects.bookshelf.interaction_cells[0]; _check(bool(reader.begin("read","book_01","read",room,needs,resident).get("ok",false)), "reading should complete from a normal nearby state"); reader.update(30.0); _check(bool(reader.complete(room,needs,resident).get("ok",false)), "reading should complete after its duration")
+	var diarist:=ActivityExecutor.new(); resident.current_cell=room.objects.desk.interaction_cells[0]; _check(bool(diarist.begin("write_diary","desk","write",room,needs,resident).get("ok",false)), "diary activity should start normally"); diarist.update(20.0); _check(bool(diarist.complete(room,needs,resident,"A quiet day.").get("ok",false)), "diary activity should complete normally")
 
 func _test_save_round_trip_and_migration() -> void:
 	var room:=RoomState.new(); room.objects.chair.state=true; room.move_object("chair",Vector2i(5,1),0); room.items.food_stack.quantity=2

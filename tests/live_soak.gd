@@ -37,6 +37,7 @@ func _initialize() -> void:
 	for key in ["plans_completed","plans_aborted","fallback_waits","fallback_schema","fallback_semantic","fallback_repair_failed","fallback_transport","fallback_other","schema_repair_attempts","semantic_repair_attempts","repair_recovered","repair_failed","skills_invoked","skills_completed","skills_failed","activities_started","activities_completed","activities_failed","activities_interrupted","primitive_only_plans","plans_with_activity","food_consumed","groceries_ordered","trash_generated","trash_removed","cleaning_activities","sleep_completed"]: baseline[key]=int(scene.diagnostics.get(key,0))
 	var baseline_memories:int=scene.memory_store.entries.size(); var baseline_preferences:int=_sum_counts(scene.preferences.counts); var baseline_habit_evidence:int=_habit_evidence(scene.habit_store.habits); var baseline_habits:int=scene.habit_store.summary().size(); var baseline_skill_stats:Dictionary=scene.skill_store.candidate_stats.duplicate(true)
 	var baseline_activity_types:Dictionary=scene.diagnostics.get("activity_types_requested",{}).duplicate(true); var baseline_interruptions:Dictionary=scene.diagnostics.get("activity_interruption_reasons",{}).duplicate(true)
+	var baseline_interruption_record_count:int=(scene.diagnostics.get("activity_interruption_records",[]) as Array).size()
 	var baseline_day:int=int(scene.clock.snapshot().get("day",1)); var initial_food:int=scene.room_state.item_quantity("simple_food"); var peak_trash:int=int(scene.room_state.resources.get("trash",0)); var minimum_food:int=initial_food
 	scene.speed=requested_speed if requested_speed>0.0 else original_speed
 	print("Starting cumulative decisions: %d" % baseline_decisions)
@@ -82,6 +83,7 @@ func _initialize() -> void:
 	print("Plans with activity: %d" % _delta(scene,"plans_with_activity",baseline))
 	print("Activity types requested: %s" % JSON.stringify(_dictionary_delta(scene.diagnostics.get("activity_types_requested",{}),baseline_activity_types)))
 	print("Activity interruption reasons: %s" % JSON.stringify(_dictionary_delta(scene.diagnostics.get("activity_interruption_reasons",{}),baseline_interruptions)))
+	var interruption_records:Array=scene.diagnostics.get("activity_interruption_records",[]); print("Interruption audit: %s" % JSON.stringify(_summarize_interruptions(interruption_records.slice(baseline_interruption_record_count))))
 	print("Run-local fallback waits: %d" % _delta(scene,"fallback_waits",baseline))
 	for category in ["fallback_schema","fallback_semantic","fallback_repair_failed","fallback_transport","fallback_other"]: print("%s: %d" % [category,_delta(scene,category,baseline)])
 	print("Schema repair attempts: %d" % _delta(scene,"schema_repair_attempts",baseline))
@@ -124,6 +126,18 @@ func _sum_counts(counts:Dictionary)->int:
 func _habit_evidence(habits:Array)->int:
 	var total:=0; for habit in habits:total+=int(habit.get("count",0))
 	return total
+
+func _summarize_interruptions(records:Array)->Dictionary:
+	var result:Dictionary={}
+	for record in records:
+		var reason:=str(record.get("reason","other")); var row:Dictionary=result.get(reason,{"count":0,"activities":{},"start_need_max":{},"interrupt_need_min":{},"elapsed_minutes":[]})
+		row["count"] = int(row.get("count",0))+1
+		var activity:=str(record.get("activity","")); var activities:Dictionary=row.get("activities",{}); activities[activity]=int(activities.get(activity,0))+1; row["activities"]=activities
+		var start_needs:Dictionary=record.get("start_needs",{}); var end_needs:Dictionary=record.get("interruption_needs",{}); var starts:Dictionary=row.get("start_need_max",{}); var ends:Dictionary=row.get("interrupt_need_min",{})
+		for key in start_needs: starts[key]=max(float(starts.get(key,-1.0)),float(start_needs[key]))
+		for key in end_needs: ends[key]=min(float(ends.get(key,101.0)),float(end_needs[key]))
+		var elapsed:Array=row.get("elapsed_minutes",[]); elapsed.append(snapped(float(record.get("elapsed_minutes",0.0)),0.1)); row["elapsed_minutes"]=elapsed; result[reason]=row
+	return result
 
 func _check_integrity(scene:Node)->Array:
 	var issues:Array=[]; var resident=scene.resident_state; var room=scene.room_state

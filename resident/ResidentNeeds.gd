@@ -3,10 +3,10 @@ extends RefCounted
 
 const RATES := {
 	"hunger":0.10,
-	"thirst":0.16,
+	"thirst":0.08,
 	"sleepiness":0.08,
 	"hygiene_need":0.04,
-	"toilet_need":0.07,
+	"toilet_need":0.04,
 	"boredom":0.05,
 	"loneliness":0.015,
 	"stress":0.01,
@@ -27,8 +27,9 @@ var values := {
 	"discomfort":8.0
 }
 
-func advance(minutes: float) -> void:
+func advance(minutes: float, suppressed_needs:Array=[] ) -> void:
 	for key in RATES:
+		if key in suppressed_needs: continue
 		values[key] = clamp(float(values.get(key,0.0)) + float(RATES[key]) * minutes, 0.0, 100.0)
 	if float(values.hunger) > 85.0:
 		values.stress = min(100.0, float(values.stress) + minutes * 0.0005)

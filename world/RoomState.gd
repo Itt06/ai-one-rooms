@@ -67,9 +67,13 @@ func consume_item(item_id:String)->bool:
 	if not items.has(item_id):return false
 	var item:Dictionary=items[item_id]; var quantity:=int(item.get("quantity",1))
 	if quantity<=0:return false
-	if quantity>1: item["quantity"]=quantity-1
-	else: item["location"]="consumed"; item["quantity"]=0
-	item["held_by"]=""; item["container"]=null; item["grid_cell"]=null; revision+=1; return true
+	if quantity>1:
+		# Consuming one unit from a held stack must not silently drop the
+		# remaining stack or break the Resident <-> Item ownership invariant.
+		item["quantity"]=quantity-1
+	else:
+		item["location"]="consumed"; item["quantity"]=0; item["held_by"]=""; item["container"]=null; item["grid_cell"]=null
+	revision+=1; return true
 
 func visible_objects() -> Array:
 	var result: Array = []
