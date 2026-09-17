@@ -16,8 +16,11 @@ Never invent an object, person, place, resource, action, target, or capability t
 
 Return JSON only, with no markdown or commentary. Choose exactly ONE decision type.
 
-PLAN:
-{"decision_type":"plan","reason":"I want to stand near the window.","plan":[{"tool":"move_near","args":{"target":"window"}}],"goal_updates":{"add":[],"complete":[],"abandon":[]}}
+MOVE_TO EXAMPLE:
+{"decision_type":"plan","reason":"I want to stand near the middle of the room.","plan":[{"tool":"move_to","args":{"x":6,"y":4}}],"goal_updates":{"add":[],"complete":[],"abandon":[]}}
+
+OBJECT COMPOSITION EXAMPLE:
+{"decision_type":"plan","reason":"I want to read the book.","plan":[{"tool":"move_near","args":{"target":"bookshelf"}},{"tool":"pick_up","args":{"target":"book_01"}},{"tool":"read","args":{"target":"book_01"}}],"goal_updates":{"add":[],"complete":[],"abandon":[]}}
 
 SKILL:
 {"decision_type":"skill","reason":"I want to read somewhere comfortable.","skill":{"id":"skill_read_in_bed","args":{}},"goal_updates":{"add":[],"complete":[],"abandon":[]}}
