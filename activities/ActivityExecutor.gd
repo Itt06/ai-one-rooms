@@ -22,10 +22,11 @@ func begin(id:String,target:String,why:String,room:RoomState,needs:ResidentNeeds
 		state=State.FAILED; return {"ok":false,"error":"target_not_found"}
 	if definition.has("target_type"):
 		var target_data:Dictionary=room.objects.get(target,room.items.get(target,{}))
-		if str(target_data.get("type",""))!=str(definition.target_type): state=State.FAILED; return {"ok":false,"error":"target_type_mismatch"}
+		if str(target_data.get("type",target))!=str(definition.target_type): state=State.FAILED; return {"ok":false,"error":"target_type_mismatch"}
 	if definition.target_kind=="object" and not InteractionResolver.is_at_interaction_cell(room,target,resident.current_cell): state=State.FAILED; return {"ok":false,"error":"target_not_interactable_now"}
 	if id in ["use_pc","watch_tv","order_groceries"] and target in ["pc","tv"] and not bool(room.objects[target].get("state",false)): state=State.FAILED; return {"ok":false,"error":"target_is_off"}
 	if id=="drink" and target=="fridge" and not bool(room.objects[target].get("state",false)): state=State.FAILED; return {"ok":false,"error":"fridge_closed"}
+	if id=="drink" and int(room.resources.get("water",0))<=0: state=State.FAILED; return {"ok":false,"error":"water_unavailable"}
 	activity_id=id; target_id=target; reason=why; remaining_minutes=float(definition.duration_minutes); before_needs=needs.values.duplicate(true); started_cell=resident.current_cell; repetition_count=recent_count; preference_value=clamp(preference,-1.0,1.0); state=State.STARTING
 	return {"ok":true,"state":"starting","activity":id,"target":target}
 

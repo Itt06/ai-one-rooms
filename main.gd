@@ -227,7 +227,7 @@ func _check_interrupt() -> void:
 	var severe_sleep := float(needs_model.values.get("sleepiness",0.0)) >= 99.0 and activity_executor.activity_id != "sleep"
 	var severe_discomfort := float(needs_model.values.get("discomfort",0.0)) >= 98.0
 	if severe_thirst or severe_toilet or severe_sleep or severe_discomfort:
-		var interruption_reason:="severe_need"
+		var interruption_reason:="severe_discomfort" if severe_discomfort else ("severe_thirst" if severe_thirst else ("severe_toilet" if severe_toilet else "severe_sleep"))
 		var reasons:Dictionary=diagnostics.get("activity_interruption_reasons",{}); reasons[interruption_reason]=int(reasons.get(interruption_reason,0))+1; diagnostics["activity_interruption_reasons"]=reasons
 		var interrupted := activity_executor.interrupt("A critical physical need interrupted the activity.")
 		if bool(interrupted.get("ok",false)):
@@ -383,7 +383,7 @@ func _label(pos: Vector2, text: String, font_size: int) -> Label:
 
 func _update_ui() -> void:
 	if not labels.has("time"): return
-	labels["time"].text = clock.text()
+	labels["time"].text = "%s  (%s)" % [clock.text(),str(clock.snapshot().get("period",""))]
 	labels["action"].text = "Activity: %s (%s)" % [activity_executor.activity_id if activity_executor.activity_id != "" else "idle",status]
 	labels["reason"].text = "Intention: " + (intention if intention!="" else reason)
 	labels["connection"].text = llm_status + "   " + save_status

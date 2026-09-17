@@ -18,6 +18,7 @@ func _initialize() -> void:
 	_test_v11_life_loop()
 	_test_timed_activity_lifecycle()
 	_test_skill_production_path()
+	_test_multiday_world_dynamics()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -256,6 +257,19 @@ func _test_skill_production_path() -> void:
 	store.mark_used("skill_read_book",true); _check(int(store.skills[0].success_count)==1 and int(store.skills[0].failure_count)==0, "Skill success telemetry should be recorded")
 	var failure_store:=SkillStore.new(); failure_store.skills.append(store.skills[0].duplicate(true)); failure_store.mark_used("skill_read_book",false)
 	_check(int(failure_store.skills[0].failure_count)==1 and int(failure_store.skills[0].success_count)==1, "Skill failure telemetry should be recorded safely")
+
+func _test_multiday_world_dynamics() -> void:
+	var clock:=WorldClock.new(); clock.advance(720.0,1.0)
+	_check(clock.snapshot().day==2 and clock.snapshot().period=="morning", "WorldClock should expose consecutive days and period")
+	var needs:=ResidentNeeds.new(); var start:=needs.snapshot(); needs.advance(1440.0)
+	_check(float(needs.values.hunger)<=100.0 and float(needs.values.thirst)<=100.0 and float(needs.values.hunger)>float(start.hunger), "24h needs progression should be bounded")
+	var room:=RoomState.new(); var resident:=ResidentState.new(); resident.current_cell=room.objects.fridge.interaction_cells[0]; room.objects.fridge.state=true
+	var eater:=ActivityExecutor.new(); var eat_started:=eater.begin("eat","food_stack","eat",room,needs,resident); _check(bool(eat_started.ok), "eating should start with stock")
+	eater.update(15.0); var food_before:=room.item_quantity("simple_food"); var eat_result:=eater.complete(room,needs,resident); _check(bool(eat_result.ok) and room.item_quantity("simple_food")==food_before-1 and int(room.resources.trash)==1, "eating should consume food and create trash")
+	room.objects.pc.state=true; resident.current_cell=room.objects.pc.interaction_cells[0]
+	var grocer:=ActivityExecutor.new(); grocer.begin("order_groceries","pc","order",room,needs,resident); grocer.update(10.0); grocer.complete(room,needs,resident); _check(room.item_quantity("simple_food")>food_before-1, "groceries should replenish stock")
+	var dirty:=room.cleanliness; room.advance(1440.0); _check(room.cleanliness<dirty, "cleanliness should decline gradually")
+	room.resources.trash=3; var cleaner:=ActivityExecutor.new(); resident.current_cell=room.objects.sink.interaction_cells[0]; cleaner.begin("clean","sink","clean",room,needs,resident); cleaner.update(30.0); cleaner.complete(room,needs,resident); _check(room.cleanliness>dirty-10.0, "cleaning should improve cleanliness")
 
 func _test_save_round_trip_and_migration() -> void:
 	var room:=RoomState.new(); room.objects.chair.state=true; room.move_object("chair",Vector2i(5,1),0); room.items.food_stack.quantity=2
