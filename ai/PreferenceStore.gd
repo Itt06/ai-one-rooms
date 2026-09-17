@@ -48,11 +48,15 @@ func load_state(data) -> void:
 	sleep_hours = []
 	if not (data is Dictionary):
 		return
-	if data.get("values", {}) is Dictionary:
-		values = data.values.duplicate(true)
-	if data.get("counts", {}) is Dictionary:
-		counts = data.counts.duplicate(true)
-	if data.get("recent_actions", []) is Array:
-		recent_actions = data.recent_actions.duplicate()
-	if data.get("sleep_hours", []) is Array:
-		sleep_hours = data.sleep_hours.duplicate()
+	var loaded_values = data.get("values", {})
+	var loaded_counts = data.get("counts", {})
+	var loaded_recent = data.get("recent_actions", [])
+	var loaded_sleep = data.get("sleep_hours", [])
+	if loaded_values is Dictionary:
+		values = loaded_values.duplicate(true)
+	if loaded_counts is Dictionary:
+		counts = loaded_counts.duplicate(true)
+	if loaded_recent is Array:
+		recent_actions = loaded_recent.duplicate()
+	if loaded_sleep is Array:
+		sleep_hours = loaded_sleep.duplicate()
