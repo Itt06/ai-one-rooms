@@ -11,6 +11,9 @@ func _initialize() -> void:
 	_test_skill_learning()
 	_test_decision_schema()
 	_test_object_manipulation()
+	_test_unified_life_loop()
+	_test_affordances_and_reachability()
+	_test_save_round_trip_and_migration()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -40,7 +43,7 @@ func _test_candidates_and_validation() -> void:
 	_check(bool(valid.get("ok",false)), "eat_food should validate while food exists")
 	var sink_water := ActionValidator.validate({"action":{"id":"drink_water","target":"sink"},"reason":"Thirsty.","goal_updates":{"add":[],"complete":[],"abandon":[]}},candidates,room,[])
 	_check(bool(sink_water.get("ok",false)), "sink should be a valid water target")
-	room.resources["simple_food"] = 0
+	room.items["food_stack"]["quantity"] = 0
 	room.resources["water"] = 0
 	candidates = ActionCatalog.candidates(room)
 	var invalid_food := ActionValidator.validate({"action":{"id":"eat_food","target":"fridge"},"reason":"Hungry.","goal_updates":{"add":[],"complete":[],"abandon":[]}},candidates,room,[])
@@ -57,24 +60,26 @@ func _test_candidates_and_validation() -> void:
 func _test_action_executor() -> void:
 	var room := RoomState.new()
 	var needs := ResidentNeeds.new()
-	var executor := ActionExecutor.new()
-	var start_pos: Vector2 = room.objects["fridge"].interaction_point
-	var started := executor.begin("eat_food","fridge","I am hungry.",room,needs,start_pos)
-	_check(str(started.get("event","")) == "action_queued", "action should queue")
-	var update := executor.update(0.0,20.0,start_pos,180.0,needs)
-	_check(str(update.get("event","")) == "action_completed", "action should complete after duration")
-	var food_before := int(room.resources.get("simple_food",0))
+	var resident := ResidentState.new()
+	var executor := ActivityExecutor.new()
+	resident.held_item_id = "food_stack"
+	room.items["food_stack"].location = "held"
+	var started := executor.begin("eat","food_stack","I am hungry.",room,needs,resident)
+	_check(bool(started.get("ok",false)), "activity should queue")
+	var update := executor.update(20.0)
+	_check(bool(update.get("completed",false)), "activity should complete after duration")
+	var food_before := int(room.items["food_stack"].get("quantity",0))
 	var hunger_before := float(needs.values.get("hunger",0.0))
-	var result := executor.apply_completion(room,needs)
+	var result := executor.complete(room,needs,resident)
 	_check(bool(result.get("ok",false)), "completed action effects should apply")
-	_check(int(room.resources.get("simple_food",0)) == food_before - 1, "food should be consumed")
+	_check(int(room.items["food_stack"].get("quantity",0)) == food_before - 1, "food should be consumed")
 	_check(float(needs.values.get("hunger",0.0)) < hunger_before, "eating should reduce hunger")
-	var sink_executor := ActionExecutor.new()
+	var sink_executor := ActivityExecutor.new()
 	var sink_pos: Vector2 = room.objects["sink"].interaction_point
 	var water_before := int(room.resources.get("water",0))
-	sink_executor.begin("drink_water","sink","I am thirsty.",room,needs,sink_pos)
-	sink_executor.update(0.0,20.0,sink_pos,180.0,needs)
-	sink_executor.apply_completion(room,needs)
+	sink_executor.begin("drink","sink","I am thirsty.",room,needs,resident)
+	sink_executor.update(20.0)
+	sink_executor.complete(room,needs,resident)
 	_check(int(room.resources.get("water",0)) == water_before, "tap water should not consume bottled water")
 
 func _test_memory_and_goals() -> void:
@@ -135,3 +140,45 @@ func _test_object_manipulation() -> void:
 	var moved:=room.move_object("chair",Vector2i(5,1),0); _check(bool(moved.get("ok",false)), "movable chair should move")
 	_check(room.objects.chair.origin_cell==Vector2i(5,1), "chair placement should change")
 	var rotated:=room.rotate_object("chair",90); _check(bool(rotated.get("ok",false)), "chair should rotate")
+
+func _test_unified_life_loop() -> void:
+	var room:=RoomState.new(); var resident:=ResidentState.new(); var needs:=ResidentNeeds.new()
+	var plan:=[{"tool":"move_near","args":{"target":"bookshelf"}},{"tool":"pick_up","args":{"target":"book_01"}},{"tool":"move_near","args":{"target":"bed"}},{"tool":"sit","args":{"target":"bed"}},{"tool":"read","args":{"target":"book_01"}}]
+	var preflight:=PlanPreflight.validate(plan,room,ResidentState.new(),ResidentNeeds.new())
+	_check(bool(preflight.get("ok",false)), "preflight should accept a reachable read plan")
+	resident.current_cell=room.objects.bookshelf.interaction_cells[0]
+	PrimitiveToolExecutor.execute({"tool":"pick_up","args":{"target":"book_01"}},room,resident,needs)
+	var activity:=ActivityExecutor.new(); var started:=activity.begin("read","book_01","I want to read.",room,needs,resident)
+	_check(bool(started.get("ok",false)), "read activity should start")
+	_check(not bool(activity.update(29.0).get("completed",false)), "read should still be running before duration")
+	_check(bool(activity.update(1.0).get("completed",false)), "read should complete at duration")
+	var boredom_before:=float(needs.values.boredom); var result:=activity.complete(room,needs,resident)
+	_check(bool(result.get("ok",false)) and float(needs.values.boredom)<boredom_before, "read result should apply authoritative effects")
+	var wait:=ActivityExecutor.new(); wait.begin("wait","","I will pause.",room,needs,resident)
+	_check(not bool(wait.update(9.0).get("completed",false)), "wait should consume time")
+	_check(bool(wait.update(1.0).get("completed",false)), "wait should complete after ten minutes")
+
+func _test_affordances_and_reachability() -> void:
+	var room:=RoomState.new(); var resident:=ResidentState.new()
+	var tools:=PrimitiveToolCatalog.available(room,{"held_item_id":""}); var fridge_open:=false; var close_available:=false
+	for entry in tools:
+		if entry.tool=="open" and "fridge" in entry.valid_targets:fridge_open=true
+	_check(fridge_open, "closed fridge should expose open")
+	room.objects.fridge.state=true; tools=PrimitiveToolCatalog.available(room,{"held_item_id":""})
+	for entry in tools:
+		if entry.tool=="close" and "fridge" in entry.valid_targets:close_available=true
+	_check(close_available, "open fridge should expose close")
+	var nearest:=InteractionResolver.nearest_cell(room,"trash_bin",resident.current_cell)
+	_check(bool(nearest.get("ok",false)) and room.grid.is_inside(nearest.cell), "trash bin should have an in-grid reachable interaction cell")
+	var invalid:=PrimitiveToolValidator.validate({"tool":"open","args":{"target":"bed"}},room,room.grid,{"current_cell":resident.current_cell,"held_item_id":""},room.items)
+	_check(not bool(invalid.get("ok",false)), "unsupported open target should be rejected")
+
+func _test_save_round_trip_and_migration() -> void:
+	var room:=RoomState.new(); room.objects.chair.state=true; room.move_object("chair",Vector2i(5,1),0); room.items.food_stack.quantity=2
+	var loaded:=RoomState.new(); loaded.load_state(room.serialize())
+	_check(loaded.objects.chair.origin_cell==Vector2i(5,1) and loaded.objects.chair.state==true, "object placement and state should round-trip")
+	_check(int(loaded.items.food_stack.quantity)==2, "item quantity should round-trip")
+	var resident:=ResidentState.new(); resident.held_item_id="book_01"; resident.posture="sitting"; var resident_loaded:=ResidentState.new(); resident_loaded.load_state(resident.serialize())
+	_check(resident_loaded.held_item_id=="book_01" and resident_loaded.posture=="sitting", "resident state should round-trip")
+	var migrated:=SaveManager._migrate_versioned({"save_version":2},2)
+	_check(int(migrated.save_version)==SaveManager.SAVE_VERSION and migrated.has("plan_history") and migrated.has("skills"), "older save versions should migrate")

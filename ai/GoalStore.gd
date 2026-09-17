@@ -21,14 +21,14 @@ func active_records() -> Array:
 			result.append(goal.duplicate(true))
 	return result
 
-func apply(updates) -> void:
+func apply(updates, created_at: String = "") -> void:
 	if not (updates is Dictionary):
 		return
 	for value in updates.get("add", []):
 		var text := str(value).strip_edges()
 		if text == "" or text.length() > MAX_TEXT_LENGTH or _has(text) or active_texts().size() >= MAX_ACTIVE:
 			continue
-		goals.append({"id": "goal_%04d" % _next_id, "text": text, "status": "active"})
+		goals.append({"id": "goal_%04d" % _next_id, "text": text, "created_at": created_at, "status": "active"})
 		_next_id += 1
 	for value in updates.get("complete", []):
 		_set_status(str(value), "completed")
@@ -47,7 +47,9 @@ func load_state(data) -> void:
 	if loaded is Array:
 		for goal in loaded:
 			if goal is Dictionary:
-				goals.append(goal.duplicate(true))
+				var normalized:Dictionary=goal.duplicate(true)
+				if not normalized.has("created_at"):normalized["created_at"]=""
+				goals.append(normalized)
 	_next_id = max(1, int(data.get("next_id", goals.size() + 1)))
 
 func _has(text_or_id: String) -> bool:

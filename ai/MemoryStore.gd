@@ -27,6 +27,13 @@ func add(time: String, action: String, summary: String, result: String, salience
 	if entries.size() > MAX_ENTRIES:
 		entries.resize(MAX_ENTRIES)
 
+func add_life_event(event:Dictionary)->void:
+	if event.is_empty():return
+	var activity:=str(event.get("activity","activity")); var target:=str(event.get("target","")); var label:=str(event.get("activity_label",activity))
+	var summary:="I %s"%label
+	if target!="":summary+=" near %s"%target
+	add(str(event.get("time","")),activity,summary+".",str(event.get("result","completed")),float(event.get("salience",0.5)),[target] if target!="" else [],event.get("before_needs",{}))
+
 func retrieve(action_ids: Array, goals: Array, limit := 6, current_target := "", strong_needs := []) -> Array:
 	var scored: Array = []
 	for i in range(entries.size()):

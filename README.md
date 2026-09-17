@@ -77,8 +77,12 @@ resident/
   ResidentNeeds.gd
 
 actions/
-  ActionCatalog.gd
-  ActionExecutor.gd
+  ActionCatalog.gd (legacy compatibility macros)
+  ActionExecutor.gd (legacy compatibility)
+
+activities/
+  ActivityCatalog.gd
+  ActivityExecutor.gd
 
 ai/
   LLMClient.gd

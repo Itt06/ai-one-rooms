@@ -12,11 +12,9 @@ var last_observation := ""
 var last_response := ""
 var validation_error := ""
 var decision_cooldown := 0.0
-var person_pos := Vector2(420,390)
 var move_speed := 180.0
 var labels := {}
 var last_retrieved_memory_ids: Array = []
-var pending_diary_text = null
 var debug_panel: Panel
 var debug_label: Label
 
@@ -26,7 +24,7 @@ var needs_model := ResidentNeeds.new()
 var memory_store := MemoryStore.new()
 var goal_store := GoalStore.new()
 var preferences := PreferenceStore.new()
-var action_executor := ActionExecutor.new()
+var activity_executor := ActivityExecutor.new()
 var harness: ResidentHarness
 var resident_state := ResidentState.new()
 var resident_movement := ResidentMovement.new()
@@ -36,16 +34,16 @@ var plan_history := PlanHistory.new()
 var skill_store := SkillStore.new()
 var current_skill_id := ""
 var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"tool_frequency":{}}
+var decision_revision := 0
 
 func _ready() -> void:
 	_load_game()
 	harness = ResidentHarness.new()
 	add_child(harness)
-	harness.decision_ready.connect(_on_decision_ready)
 	harness.decision_failed.connect(_on_decision_failed)
 	harness.plan_ready.connect(_on_plan_ready)
 	harness.skill_ready.connect(_on_skill_ready)
-	resident_state.render_position = person_pos
+	resident_state.render_position = _cell_to_position(resident_state.current_cell)
 	_add_room_art()
 	_build_ui()
 	queue_redraw()
@@ -59,20 +57,16 @@ func _process(delta: float) -> void:
 		room_state.advance(elapsed_minutes)
 		if room_state.cleanliness < 40.0:
 			needs_model.apply({"discomfort":elapsed_minutes * 0.01})
-	if action_executor.is_active() and speed > 0.0:
-		var update := action_executor.update(delta,elapsed_minutes,person_pos,move_speed,needs_model)
-		person_pos = update.get("position",person_pos)
-		status = str(update.get("state",status))
-		if str(update.get("event","")) == "action_completed":
-			_finish_action()
-		else:
-			_check_interrupt()
+	if activity_executor.is_active() and speed > 0.0:
+		var activity_update:=activity_executor.update(elapsed_minutes)
+		status=str(activity_update.get("state",status))
+		if bool(activity_update.get("completed",false)):_finish_activity()
+		else:_check_interrupt()
 	if plan_executor.active and plan_moving and speed > 0.0:
 		if resident_movement.update(resident_state,delta,move_speed):
-			person_pos = resident_state.render_position
 			plan_moving = false
 			_complete_plan_step()
-	elif plan_executor.active and not plan_moving and not action_executor.is_active():
+	elif plan_executor.active and not plan_moving and not activity_executor.is_active():
 		_run_plan_step()
 	decision_cooldown = max(0.0,decision_cooldown - delta)
 	if status == "idle" and decision_cooldown <= 0.0 and speed > 0.0:
@@ -83,11 +77,10 @@ func _process(delta: float) -> void:
 func _request_decision() -> void:
 	if harness == null or harness.is_busy() or status == "thinking":
 		return
-	var candidates := ActionCatalog.candidates(room_state)
+	var candidates:Array=[]
 	diagnostics.total_decisions+=1
 	var action_ids: Array = []
-	for candidate in candidates:
-		action_ids.append(str(candidate.get("id","")))
+	for candidate in PrimitiveToolCatalog.available(room_state,{"held_item_id":resident_state.held_item_id}): action_ids.append(str(candidate.get("tool","")))
 	var strong_needs: Array = []
 	for key in needs_model.values:
 		if float(needs_model.values.get(key,0.0)) >= 70.0:
@@ -97,29 +90,16 @@ func _request_decision() -> void:
 	for memory in memories:
 		last_retrieved_memory_ids.append(str(memory.get("id","")))
 	var available_skills:=skill_store.relevant(room_state,resident_state.held_item_id,needs_model.values)
-	var observation := ObservationBuilder.build(clock,needs_model,room_state,person_pos,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,preferences.habit_summary(),{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},available_skills,_recent_behavior())
+	var observation := ObservationBuilder.build(clock,needs_model,room_state,resident_state.render_position,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,preferences.habit_summary(),{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},available_skills,_recent_behavior())
 	last_observation = JSON.stringify(observation)
 	status = "thinking"
 	validation_error = ""
+	decision_revision=_state_revision()
 	if not harness.request_decision(observation,candidates,room_state,goal_store.active_texts(),_config(),_prompt()):
 		_fallback("LLM request could not start")
 
-func _on_decision_ready(decision: Dictionary, latency_ms: int, raw_response: String) -> void:
-	last_latency_ms = latency_ms
-	last_response = raw_response
-	var candidates := ActionCatalog.candidates(room_state)
-	var validation := ActionValidator.validate(decision,candidates,room_state,goal_store.active_texts())
-	if not bool(validation.get("ok",false)):
-		_fallback("Stale or invalid decision: %s" % str(validation.get("error","unknown error")))
-		return
-	var normalized: Dictionary = validation.get("decision",{})
-	goal_store.apply(normalized.get("goal_updates",{}))
-	pending_diary_text = normalized.get("diary_text",null)
-	var action: Dictionary = normalized.get("action",{})
-	_start_action(str(action.get("id","wait")),str(action.get("target","")),str(normalized.get("reason","")))
-
 func _on_plan_ready(plan:Array, why:String, updates:Dictionary, latency_ms:int, raw_response:String)->void:
-	last_latency_ms=latency_ms; last_response=raw_response; current_skill_id=""; goal_store.apply(updates); reason=why if why!="" else "I am deciding what to do."; plan_executor.begin(plan,reason); diagnostics.plans_started+=1; status="acting"; _record_history("plan_started",plan_executor.plan_id,"",reason); _run_plan_step()
+	last_latency_ms=latency_ms; last_response=raw_response; _accept_plan(plan,why,updates,"")
 
 func _on_skill_ready(skill_id:String, why:String, updates:Dictionary, latency_ms:int, raw_response:String)->void:
 	last_latency_ms=latency_ms; last_response=raw_response
@@ -127,7 +107,17 @@ func _on_skill_ready(skill_id:String, why:String, updates:Dictionary, latency_ms
 	if skill.is_empty() or skill.status!="active": _fallback("Unknown or inactive skill"); return
 	var expanded:=SkillExecutor.expand(skill,room_state)
 	if expanded.is_empty(): skill_store.mark_used(skill_id,false); diagnostics.skills_failed+=1; _fallback("Skill target resolution failed"); return
-	goal_store.apply(updates); current_skill_id=skill_id; diagnostics.skills_invoked+=1; reason=why if why!="" else skill.description; plan_executor.begin(expanded,reason); status="acting"; _run_plan_step()
+	_accept_plan(expanded,why if why!="" else skill.description,updates,skill_id)
+
+func _accept_plan(plan:Array, why:String, updates:Dictionary, skill_id:String)->void:
+	if _state_revision()!=decision_revision: _fallback("State changed while deciding"); return
+	var goal_result:=ActionValidator.validate_goal_updates(updates,goal_store.active_texts())
+	if not bool(goal_result.get("ok",false)): _fallback("Invalid goal updates"); return
+	var preflight:=PlanPreflight.validate(plan,room_state,resident_state,needs_model)
+	if not bool(preflight.get("ok",false)):
+		diagnostics.semantic_rejections+=1; _fallback("Plan preflight failed: %s"%str(preflight.get("error","unknown"))); return
+	goal_store.apply(goal_result.get("updates",{}),clock.text()); current_skill_id=skill_id; if skill_id!="":diagnostics.skills_invoked+=1
+	reason=why if why!="" else "I am deciding what to do."; plan_executor.begin(plan,reason); diagnostics.plans_started+=1; status="acting"; _record_history("plan_started",plan_executor.plan_id,"",reason); _run_plan_step()
 
 func _run_plan_step()->void:
 	if not plan_executor.active:return
@@ -143,16 +133,22 @@ func _run_plan_step()->void:
 	if tool=="move_to":
 		var args:Dictionary=step.get("args",{}); if not _begin_plan_move_cell(Vector2i(int(args.x),int(args.y))): _abort_plan("destination_unreachable")
 		return
-	var result:=PrimitiveToolExecutor.execute(step,room_state,resident_state,needs_model); _complete_plan_step(result)
+	if ActivityCatalog.DEFINITIONS.has(tool):
+		var started:=activity_executor.begin(tool,target,reason,room_state,needs_model,resident_state)
+		if not bool(started.get("ok",false)): _abort_plan(str(started.get("error","activity_failed"))); return
+		status=activity_executor.state_name(); return
+	var result:=PrimitiveToolExecutor.execute(step,room_state,resident_state,needs_model)
+	if not bool(result.get("ok",false)):_abort_plan(str(result.get("error","primitive_failed"))); return
+	_complete_plan_step(result)
 
 func _begin_plan_move(object_id:String)->bool:
-	if not room_state.objects.has(object_id):return false
-	var cells:Array=room_state.objects[object_id].get("interaction_cells",[]); if cells.is_empty():return false
-	return _begin_plan_move_cell(cells[0])
+	var resolved:=InteractionResolver.nearest_cell(room_state,object_id,resident_state.current_cell)
+	if not bool(resolved.get("ok",false)):return false
+	return _begin_plan_move_cell(resolved.cell)
 
 func _begin_plan_move_cell(destination:Vector2i)->bool:
 	if not resident_movement.begin(room_state.grid,resident_state.current_cell,destination,room_state.blocked_cells()):return false
-	plan_moving=true; status="moving"; return true
+	resident_state.next_cell=destination; plan_moving=true; status="moving"; return true
 
 func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->void:
 	var done:=plan_executor.advance(result)
@@ -166,7 +162,25 @@ func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->vo
 	else:
 		status="acting"; _run_plan_step()
 
+func _finish_activity()->void:
+	var id:=activity_executor.activity_id; var target:=activity_executor.target_id
+	var diary_text:=reason if id=="write_diary" else ""
+	var result:=activity_executor.complete(room_state,needs_model,resident_state,diary_text)
+	if not bool(result.get("ok",false)):_abort_plan(str(result.get("error","activity_failed"))); return
+	var before:Dictionary=result.get("before_needs",{}); var after:Dictionary=result.get("after_needs",{}); var improvement:=0.0
+	for key in ["boredom","stress","discomfort","loneliness"]:improvement+=float(before.get(key,0.0))-float(after.get(key,0.0))
+	var event:=result.duplicate(true); event["time"]=clock.text(); event["activity_label"]=ActivityCatalog.get_definition(id).get("activity_label",id); event["time_hour"]=int(clock.snapshot().get("hour",0)); event["salience"]=clamp(0.35+abs(improvement)/100.0,0.35,0.9)
+	preferences.record_life_event(event)
+	memory_store.add_life_event(event)
+	if id=="write_diary":
+		diary.push_front({"time":clock.text(),"text":str(result.get("diary_text",diary_text)).left(500)})
+		if diary.size()>60:diary.resize(60)
+	_record_history("activity_completed",id,target,reason)
+	DecisionLogger.append({"time":clock.text(),"action":id,"activity":id,"target":target,"reason":reason,"retrieved_memories":last_retrieved_memory_ids,"goals":goal_store.active_texts(),"latency_ms":last_latency_ms,"validation":"valid","result":"completed"})
+	_complete_plan_step(result)
+
 func _abort_plan(failure_reason:String)->void:
+	if activity_executor.is_active():activity_executor.interrupt(failure_reason); activity_executor.reset()
 	plan_executor.abort({"ok":false,"error":failure_reason})
 	diagnostics.plans_aborted+=1
 	plan_history.add(plan_executor.plan_id,plan_executor.reason,plan_executor.plan,plan_executor.results,false,clock.text(),clock.text(),"aborted",failure_reason)
@@ -178,69 +192,24 @@ func _on_decision_failed(error_message: String, latency_ms: int, raw_response: S
 	last_response = raw_response
 	_fallback(error_message)
 
-func _start_action(id: String, target: String, why: String) -> void:
-	reason = why if why != "" else str(ActionCatalog.DEFINITIONS.get(id,{}).get("display_name",id))
-	var started := action_executor.begin(id,target,reason,room_state,needs_model,person_pos)
-	if str(started.get("event","")) == "action_failed":
-		_fallback(str(started.get("reason","Action failed")))
-		return
-	status = action_executor.state_name()
-	_record_history("queued",id,target,reason)
-
-func _finish_action() -> void:
-	var id := action_executor.action_id
-	var target := action_executor.target_id
-	var result := action_executor.apply_completion(room_state,needs_model)
-	if not bool(result.get("ok",false)):
-		validation_error = str(result.get("reason","Action completion failed"))
-		status = "idle"
-		action_executor.reset()
-		return
-	var before: Dictionary = result.get("before_needs",{})
-	var after: Dictionary = result.get("after_needs",{})
-	var improvement := 0.0
-	for key in ["boredom","stress","discomfort","loneliness"]:
-		improvement += float(before.get(key,0.0)) - float(after.get(key,0.0))
-	preferences.record(id,clamp(improvement / 350.0,-0.05,0.05),int(clock.snapshot().get("hour",0)))
-	var memory_summary := _memory_summary(id,before,after)
-	memory_store.add(clock.text(),id,memory_summary,"completed",_memory_salience(before,after),[target] if target != "" else [],before)
-	if id == "write_diary":
-		var text := str(pending_diary_text).strip_edges() if pending_diary_text != null else reason
-		if text == "": text = reason
-		diary.push_front({"time":clock.text(),"text":text.left(500)})
-		if diary.size() > 60: diary.resize(60)
-	_record_history("completed",id,target,reason)
-	DecisionLogger.append({"time":clock.text(),"action":id,"target":target,"reason":reason,"retrieved_memories":last_retrieved_memory_ids,"goals":goal_store.active_texts(),"latency_ms":last_latency_ms,"validation":"valid","result":"completed"})
-	pending_diary_text = null
-	action_executor.reset()
-	status = "idle"
-	decision_cooldown = 1.0
-	_save_game()
-
 func _check_interrupt() -> void:
-	if action_executor.state != ActionExecutor.State.RUNNING:
+	if not activity_executor.is_active():
 		return
-	var severe_thirst := float(needs_model.values.get("thirst",0.0)) >= 98.0 and action_executor.action_id != "drink_water"
-	var severe_toilet := float(needs_model.values.get("toilet_need",0.0)) >= 98.0 and action_executor.action_id != "use_toilet"
+	var severe_thirst := float(needs_model.values.get("thirst",0.0)) >= 98.0 and activity_executor.activity_id != "drink"
+	var severe_toilet := float(needs_model.values.get("toilet_need",0.0)) >= 98.0 and activity_executor.activity_id != "use_toilet"
+	var severe_sleep := float(needs_model.values.get("sleepiness",0.0)) >= 99.0 and activity_executor.activity_id != "sleep"
 	var severe_discomfort := float(needs_model.values.get("discomfort",0.0)) >= 98.0
-	if severe_thirst or severe_toilet or severe_discomfort:
-		var interrupted := action_executor.interrupt("A critical physical need interrupted the activity.")
+	if severe_thirst or severe_toilet or severe_sleep or severe_discomfort:
+		var interrupted := activity_executor.interrupt("A critical physical need interrupted the activity.")
 		if bool(interrupted.get("ok",false)):
-			_record_history("interrupted",action_executor.action_id,action_executor.target_id,str(interrupted.get("reason","")))
-			action_executor.reset()
-			status = "idle"
-			decision_cooldown = 0.25
+			_record_history("interrupted",activity_executor.activity_id,activity_executor.target_id,str(interrupted.get("reason",""))); _abort_plan("activity_interrupted")
 
 func _fallback(message: String) -> void:
 	diagnostics.fallback_waits+=1
 	validation_error = message
 	reason = "%s; I will wait." % message
-	if action_executor.is_active():
-		action_executor.interrupt(message)
-	action_executor.reset()
-	var result := action_executor.begin("wait","",reason,room_state,needs_model,person_pos)
-	status = action_executor.state_name() if str(result.get("event","")) != "action_failed" else "idle"
-	decision_cooldown = 2.0
+	if plan_executor.active:_abort_plan(message)
+	plan_executor.begin([{"tool":"wait","args":{}}],reason); status="acting"; decision_cooldown=2.0; _run_plan_step()
 
 func _memory_summary(id: String, before: Dictionary, after: Dictionary) -> String:
 	var name := str(ActionCatalog.DEFINITIONS.get(id,{}).get("display_name",id)).to_lower()
@@ -289,7 +258,7 @@ func _save_game() -> void:
 		"plan_history":plan_history.serialize(),
 		"skills":skill_store.serialize(),
 		"diagnostics":diagnostics,
-		"resident_position":[person_pos.x,person_pos.y]
+		"resident_position":[resident_state.render_position.x,resident_state.render_position.y]
 	})
 
 func _load_game() -> void:
@@ -309,13 +278,13 @@ func _load_game() -> void:
 	if loaded_diary is Array: diary = loaded_diary.duplicate(true)
 	var loaded_history = data.get("decision_history",[])
 	if loaded_history is Array: decision_history = loaded_history.duplicate(true)
-	var p = data.get("resident_position",[420.0,390.0])
-	if p is Array and p.size() >= 2: person_pos = Vector2(float(p[0]),float(p[1]))
-	resident_state.load_state(data.get("resident_state",{})); resident_state.render_position=person_pos
+	resident_state.load_state(data.get("resident_state",{})); resident_state.render_position=_cell_to_position(resident_state.current_cell)
 	plan_history.load_state(data.get("plan_history",[]))
 	skill_store.load_state(data.get("skills",{}))
 	room_state.repair_integrity(resident_state)
-	var loaded_diagnostics=data.get("diagnostics",{}); if loaded_diagnostics is Dictionary: diagnostics=loaded_diagnostics.duplicate(true)
+	var loaded_diagnostics=data.get("diagnostics",{})
+	if loaded_diagnostics is Dictionary:
+		for key in loaded_diagnostics: diagnostics[key]=loaded_diagnostics[key]
 
 func _add_room_art() -> void:
 	var texture := load("res://assets/room_background.png") as Texture2D
@@ -354,11 +323,11 @@ func _label(pos: Vector2, text: String, font_size: int) -> Label:
 func _update_ui() -> void:
 	if not labels.has("time"): return
 	labels["time"].text = clock.text()
-	labels["action"].text = "Action: %s (%s)" % [action_executor.action_id if action_executor.action_id != "" else "idle",status]
+	labels["action"].text = "Activity: %s (%s)" % [activity_executor.activity_id if activity_executor.activity_id != "" else "idle",status]
 	labels["reason"].text = "Reason: " + reason
 	var text := "NEEDS\n"
 	for key in needs_model.values: text += "%s: %3d\n" % [key,int(needs_model.values[key])]
-	text += "\nROOM  clean:%d  food:%d  water:%d  trash:%d\n" % [int(room_state.cleanliness),int(room_state.resources.get("simple_food",0)),int(room_state.resources.get("water",0)),int(room_state.resources.get("trash",0))]
+	text += "\nROOM  clean:%d  food:%d  water:%d  trash:%d\n" % [int(room_state.cleanliness),room_state.item_quantity("simple_food"),int(room_state.resources.get("water",0)),int(room_state.resources.get("trash",0))]
 	text += "\nGOALS\n" + ("none\n" if goal_store.active_texts().is_empty() else "\n".join(goal_store.active_texts()) + "\n")
 	text += "\nPREFERENCES\n"
 	var pref_summary := preferences.summary()
@@ -381,20 +350,27 @@ func _draw() -> void:
 		if bool(object.get("movable",false)): draw_rect(Rect2(p-Vector2(18,18),Vector2(36,36)),Color("#bcaaa4")); draw_string(ThemeDB.fallback_font,p-Vector2(14,24),str(id),HORIZONTAL_ALIGNMENT_LEFT,-1,10,Color.WHITE)
 		else: draw_circle(p,8,Color("#8d6e63"))
 	var resident_color := Color("#90caf9") if status == "thinking" else Color("#4fc3f7")
-	if resident_state.posture=="lying": draw_rect(Rect2(person_pos-Vector2(30,12),Vector2(60,24)),resident_color)
-	else: draw_circle(person_pos,24,resident_color)
-	if resident_state.held_item_id!="": draw_circle(person_pos+Vector2(30,0),7,Color("#ffcc80")); draw_string(ThemeDB.fallback_font,person_pos+Vector2(38,5),resident_state.held_item_id,HORIZONTAL_ALIGNMENT_LEFT,-1,11,Color.WHITE)
-	if resident_state.posture=="sitting": draw_line(person_pos+Vector2(-15,20),person_pos+Vector2(15,20),Color("#37474f"),5)
-	if status in ["acting","moving"]: draw_circle(person_pos+Vector2(0,-34),6,Color("#fff176"))
-	if status == "acting": draw_circle(person_pos+Vector2(0,-34),6,Color("#fff176"))
-	draw_string(ThemeDB.fallback_font,person_pos+Vector2(-30,-32),"Resident",HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("#102027"))
+	var render_position:=resident_state.render_position
+	if resident_state.posture=="lying": draw_rect(Rect2(render_position-Vector2(30,12),Vector2(60,24)),resident_color)
+	else: draw_circle(render_position,24,resident_color)
+	if resident_state.held_item_id!="": draw_circle(render_position+Vector2(30,0),7,Color("#ffcc80")); draw_string(ThemeDB.fallback_font,render_position+Vector2(38,5),resident_state.held_item_id,HORIZONTAL_ALIGNMENT_LEFT,-1,11,Color.WHITE)
+	if resident_state.posture=="sitting": draw_line(render_position+Vector2(-15,20),render_position+Vector2(15,20),Color("#37474f"),5)
+	if status in ["acting","moving"]: draw_circle(render_position+Vector2(0,-34),6,Color("#fff176"))
+	draw_string(ThemeDB.fallback_font,render_position+Vector2(-30,-32),"Resident",HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("#102027"))
 
 func _activity_text()->String:
 	if status=="moving":return "walking"
 	if resident_state.posture=="lying":return "lying / sleeping"
 	if resident_state.posture=="sitting":return "sitting"
+	if activity_executor.activity_id!="":return str(ActivityCatalog.get_definition(activity_executor.activity_id).get("activity_label",activity_executor.activity_id))
 	if plan_executor.active:return "performing primitive"
 	return "waiting" if status=="idle" else status
+
+func _cell_to_position(cell:Vector2i)->Vector2:
+	return Vector2(70,70)+Vector2(cell)*60.0
+
+func _state_revision()->int:
+	return room_state.revision+resident_state.revision
 
 func _recent_behavior()->Dictionary:
 	if decision_history.size()<2:return {}

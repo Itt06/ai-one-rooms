@@ -49,14 +49,14 @@ static func _candidate(id: String, definition: Dictionary, target_id: String, ta
 	}
 
 static func _requirements_met(id: String, room: RoomState) -> bool:
-	if id == "eat_food" and int(room.resources.get("simple_food", 0)) <= 0:
+	if id == "eat_food" and room.item_quantity("simple_food") <= 0:
 		return false
-	if id == "read_book" and int(room.resources.get("book", 0)) <= 0:
+	if id == "read_book" and room.item_quantity("book") <= 0:
 		return false
 	if id == "take_out_trash" and int(room.resources.get("trash", 0)) <= 0:
 		return false
 	if id == "clean_room" and float(room.cleanliness) >= 97.0:
 		return false
-	if id == "order_groceries" and int(room.resources.get("simple_food",0)) > 2:
+	if id == "order_groceries" and room.item_quantity("simple_food") > 2:
 		return false
 	return true

@@ -22,6 +22,8 @@ static func load_state() -> Dictionary:
 	var version := int(parsed.get("save_version", 0))
 	if version <= 0:
 		return _migrate_legacy(parsed)
+	if version < SAVE_VERSION:
+		return _migrate_versioned(parsed,version)
 	if version > SAVE_VERSION:
 		return {}
 	return parsed
@@ -45,4 +47,14 @@ static func _migrate_legacy(data: Dictionary) -> Dictionary:
 	}
 	for goal in data.get("goals", []):
 		migrated.goal_store.goals.append({"id": "goal_%04d" % (migrated.goal_store.goals.size() + 1), "text": str(goal), "status": "active"})
+	return migrated
+
+static func _migrate_versioned(data:Dictionary, from_version:int)->Dictionary:
+	var migrated:=data.duplicate(true)
+	migrated["save_version"]=SAVE_VERSION
+	if not migrated.has("room"):migrated["room"]={}
+	if not migrated.has("resident_state"):migrated["resident_state"]={}
+	if not migrated.has("plan_history"):migrated["plan_history"]=[]
+	if not migrated.has("skills"):migrated["skills"]={"skills":[],"candidate_stats":{}}
+	if not migrated.has("diagnostics"):migrated["diagnostics"]={}
 	return migrated

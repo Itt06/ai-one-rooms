@@ -24,11 +24,11 @@ static func validate(decision, candidates: Array, room: RoomState, existing_goal
 		var supported: Array = room.objects[target_id].get("supported_actions", [])
 		if action_id not in supported:
 			return _fail("Target does not support this action")
-	if action_id == "eat_food" and int(room.resources.get("simple_food", 0)) <= 0:
+	if action_id == "eat_food" and room.item_quantity("simple_food") <= 0:
 		return _fail("No food available")
 	if action_id == "drink_water" and target_id == "fridge" and int(room.resources.get("water", 0)) <= 0:
 		return _fail("No bottled water available")
-	if action_id == "read_book" and int(room.resources.get("book", 0)) <= 0:
+	if action_id == "read_book" and room.item_quantity("book") <= 0:
 		return _fail("No book available")
 	var goal_result := validate_goal_updates(decision.get("goal_updates", {}), existing_goals)
 	if not bool(goal_result.get("ok", false)):
@@ -57,6 +57,8 @@ static func validate_goal_updates(raw_updates, existing_goals: Array) -> Diction
 	if not (raw_updates is Dictionary):
 		return _fail("goal_updates must be an object")
 	var normalized := {"add": [], "complete": [], "abandon": []}
+	for key in raw_updates:
+		if not normalized.has(key): return _fail("unknown goal update field")
 	for key in normalized.keys():
 		var values = raw_updates.get(key, [])
 		if not (values is Array):
@@ -74,6 +76,8 @@ static func validate_goal_updates(raw_updates, existing_goals: Array) -> Diction
 			else:
 				if text not in existing_goals:
 					return _fail("Cannot update an unknown goal")
+				if key == "abandon" and text in normalized["complete"]: return _fail("Goal cannot be completed and abandoned together")
+				if key == "complete" and text in normalized["abandon"]: return _fail("Goal cannot be completed and abandoned together")
 				normalized[key].append(text)
 	return {"ok": true, "error": "", "updates": normalized}
 

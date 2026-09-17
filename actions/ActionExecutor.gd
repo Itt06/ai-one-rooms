@@ -63,6 +63,14 @@ func apply_completion(room: RoomState, needs: ResidentNeeds) -> Dictionary:
 		var value = definition.get("effects",{})[key]
 		if str(key).begins_with("resource."):
 			var resource_name := str(key).trim_prefix("resource.")
+			if action_id == "eat_food" and resource_name == "simple_food":
+				if room.item_quantity("simple_food") <= 0: return {"ok":false,"reason":"No food item available"}
+				for item_id in room.items:
+					if str(room.items[item_id].get("type","")) == "simple_food" and int(room.items[item_id].get("quantity",1)) > 0:
+						room.consume_item(item_id); break
+				continue
+			if action_id == "order_groceries" and resource_name == "simple_food":
+				room.add_item_quantity("simple_food",int(value),"fridge"); continue
 			if action_id == "drink_water" and target_id == "sink" and resource_name == "water":
 				continue
 			room.resources[resource_name] = max(0, int(room.resources.get(resource_name,0)) + int(value))

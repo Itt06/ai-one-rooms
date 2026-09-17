@@ -8,5 +8,6 @@ func begin(grid:RoomGrid,start:Vector2i,destination:Vector2i,blocked:Array)->boo
 func update(state:ResidentState,delta:float,speed:float)->bool:
 	if path.is_empty() or path_index>=path.size(): return true
 	var target:Vector2i=path[path_index]; state.render_position=state.render_position.move_toward(Vector2(target)*60.0+Vector2(70,70),speed*delta)
-	if state.render_position.distance_to(Vector2(target)*60.0+Vector2(70,70))<3.0: state.current_cell=target; path_index+=1
+	if state.render_position.distance_to(Vector2(target)*60.0+Vector2(70,70))<3.0:
+		state.current_cell=target; state.revision+=1; path_index+=1
 	return path_index>=path.size()
