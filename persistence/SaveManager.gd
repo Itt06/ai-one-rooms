@@ -41,7 +41,7 @@ static func _migrate_legacy(data: Dictionary) -> Dictionary:
 		"preferences": {},
 		"diary": data.get("diary", []),
 		"decision_history": [],
-		"resident_position": [420.0, 390.0]
+		"resident_position": [420.0, 390.0], "skills": {"skills":[],"candidate_stats":{}}
 	}
 	for goal in data.get("goals", []):
 		migrated.goal_store.goals.append({"id": "goal_%04d" % (migrated.goal_store.goals.size() + 1), "text": str(goal), "status": "active"})

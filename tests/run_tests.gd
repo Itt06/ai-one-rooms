@@ -8,6 +8,7 @@ func _initialize() -> void:
 	_test_action_executor()
 	_test_memory_and_goals()
 	_test_grid_and_primitives()
+	_test_skill_learning()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -100,3 +101,12 @@ func _test_grid_and_primitives() -> void:
 	_check(bool(canonical.get("ok",false)), "canonical move_to should validate")
 	var legacy:=PrimitiveToolValidator.validate({"action":"move_to","target":"center","args":[6,4]},room,grid,{"current_cell":resident.current_cell,"held_item_id":""},room.items)
 	_check(not bool(legacy.get("ok",false)), "legacy primitive shape should be rejected")
+
+func _test_skill_learning() -> void:
+	var room:=RoomState.new(); var history:=PlanHistory.new()
+	var steps:=[{"tool":"move_near","args":{"target":"bookshelf"}},{"tool":"pick_up","args":{"target":"book_01"}},{"tool":"read","args":{"target":"book_01"}}]
+	for i in 3: history.add("p%d"%i,"read",steps,[],true,"t","t")
+	var store:=SkillStore.new(); store.learn(history.entries,room)
+	_check(store.skills.size()==1, "three repeated successful plans should create a skill")
+	var expanded:=SkillExecutor.expand(store.skills[0],room)
+	_check(expanded.size()==3 and expanded[1].args.target=="book_01", "skill targets should resolve to current instances")

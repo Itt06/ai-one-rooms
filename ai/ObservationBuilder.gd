@@ -1,7 +1,7 @@
 class_name ObservationBuilder
 extends RefCounted
 
-static func build(clock: WorldClock, needs: ResidentNeeds, room: RoomState, position: Vector2, action: String, memories: Array, goals: Array, preferences: Dictionary, candidates: Array, habits := {}, resident := {}) -> Dictionary:
+static func build(clock: WorldClock, needs: ResidentNeeds, room: RoomState, position: Vector2, action: String, memories: Array, goals: Array, preferences: Dictionary, candidates: Array, habits := {}, resident := {}, available_skills := []) -> Dictionary:
 	return {
 		"time": clock.snapshot(),
 		"self": {
@@ -27,6 +27,7 @@ static func build(clock: WorldClock, needs: ResidentNeeds, room: RoomState, posi
 		"habits": habits.duplicate(true) if habits is Dictionary else {},
 		"available_actions": candidates.duplicate(true),
 		"available_tools": PrimitiveToolCatalog.available(room,resident),
+		"available_skills": available_skills,
 		"grid": {"size":[RoomGrid.WIDTH,RoomGrid.HEIGHT],"zones":{"center":"central open floor","bed_area":"resting area","desk_area":"work area","window_side":"window side","bathroom_area":"washroom","kitchen_area":"kitchen"}}
 	}
 

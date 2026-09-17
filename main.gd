@@ -33,6 +33,8 @@ var resident_movement := ResidentMovement.new()
 var plan_executor := PlanExecutor.new()
 var plan_moving := false
 var plan_history := PlanHistory.new()
+var skill_store := SkillStore.new()
+var current_skill_id := ""
 
 func _ready() -> void:
 	_load_game()
@@ -41,6 +43,7 @@ func _ready() -> void:
 	harness.decision_ready.connect(_on_decision_ready)
 	harness.decision_failed.connect(_on_decision_failed)
 	harness.plan_ready.connect(_on_plan_ready)
+	harness.skill_ready.connect(_on_skill_ready)
 	resident_state.render_position = person_pos
 	_add_room_art()
 	_build_ui()
@@ -91,7 +94,7 @@ func _request_decision() -> void:
 	last_retrieved_memory_ids = []
 	for memory in memories:
 		last_retrieved_memory_ids.append(str(memory.get("id","")))
-	var observation := ObservationBuilder.build(clock,needs_model,room_state,person_pos,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,preferences.habit_summary(),{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id})
+	var observation := ObservationBuilder.build(clock,needs_model,room_state,person_pos,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,preferences.habit_summary(),{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},skill_store.relevant(room_state,resident_state.held_item_id,needs_model.values))
 	last_observation = JSON.stringify(observation)
 	status = "thinking"
 	validation_error = ""
@@ -113,7 +116,15 @@ func _on_decision_ready(decision: Dictionary, latency_ms: int, raw_response: Str
 	_start_action(str(action.get("id","wait")),str(action.get("target","")),str(normalized.get("reason","")))
 
 func _on_plan_ready(plan:Array, why:String, updates:Dictionary, latency_ms:int, raw_response:String)->void:
-	last_latency_ms=latency_ms; last_response=raw_response; goal_store.apply(updates); reason=why if why!="" else "I am deciding what to do."; plan_executor.begin(plan,reason); status="acting"; _record_history("plan_started",plan_executor.plan_id,"",reason); _run_plan_step()
+	last_latency_ms=latency_ms; last_response=raw_response; current_skill_id=""; goal_store.apply(updates); reason=why if why!="" else "I am deciding what to do."; plan_executor.begin(plan,reason); status="acting"; _record_history("plan_started",plan_executor.plan_id,"",reason); _run_plan_step()
+
+func _on_skill_ready(skill_id:String, why:String, updates:Dictionary, latency_ms:int, raw_response:String)->void:
+	last_latency_ms=latency_ms; last_response=raw_response
+	var skill:=skill_store.get_skill(skill_id)
+	if skill.is_empty() or skill.status!="active": _fallback("Unknown or inactive skill"); return
+	var expanded:=SkillExecutor.expand(skill,room_state)
+	if expanded.is_empty(): skill_store.mark_used(skill_id,false); _fallback("Skill target resolution failed"); return
+	goal_store.apply(updates); current_skill_id=skill_id; reason=why if why!="" else skill.description; plan_executor.begin(expanded,reason); status="acting"; _run_plan_step()
 
 func _run_plan_step()->void:
 	if not plan_executor.active:return
@@ -143,6 +154,8 @@ func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->vo
 	var done:=plan_executor.advance(result)
 	if done:
 		plan_history.add(plan_executor.plan_id,plan_executor.reason,plan_executor.plan,plan_executor.results,true,clock.text(),clock.text())
+		if current_skill_id!="": skill_store.mark_used(current_skill_id,true)
+		skill_store.learn(plan_history.entries,room_state)
 		memory_store.add(clock.text(),"plan", "I followed a plan: %s." % ", ".join(plan_executor.plan.map(func(step): return str(step.get("tool","")))),"completed",0.55,[],needs_model.values)
 		_record_history("plan_completed",plan_executor.plan_id,"",reason); status="idle"; decision_cooldown=0.5; _save_game()
 	else:
@@ -261,6 +274,7 @@ func _save_game() -> void:
 		"decision_history":decision_history,
 		"resident_state":resident_state.serialize(),
 		"plan_history":plan_history.serialize(),
+		"skills":skill_store.serialize(),
 		"resident_position":[person_pos.x,person_pos.y]
 	})
 
@@ -291,6 +305,7 @@ func _load_game() -> void:
 	if p is Array and p.size() >= 2: person_pos = Vector2(float(p[0]),float(p[1]))
 	resident_state.load_state(data.get("resident_state",{})); resident_state.render_position=person_pos
 	plan_history.load_state(data.get("plan_history",[]))
+	skill_store.load_state(data.get("skills",{}))
 
 func _add_room_art() -> void:
 	var texture := load("res://assets/room_background.png") as Texture2D

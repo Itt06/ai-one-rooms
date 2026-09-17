@@ -4,6 +4,7 @@ extends Node
 signal decision_ready(decision: Dictionary, latency_ms: int, raw_response: String)
 signal decision_failed(error_message: String, latency_ms: int, raw_response: String)
 signal plan_ready(plan: Array, reason: String, goal_updates: Dictionary, latency_ms: int, raw_response: String)
+signal skill_ready(skill_id: String, reason: String, goal_updates: Dictionary, latency_ms: int, raw_response: String)
 
 var client: LLMClient
 var _observation: Dictionary = {}
@@ -42,6 +43,13 @@ func _on_client_completed(success: bool, content: String, raw_response: String, 
 		decision_failed.emit(error_message,latency_ms,raw_response)
 		return
 	var parsed = JSON.parse_string(content)
+	if parsed is Dictionary and parsed.has("skill") and parsed.has("plan"):
+		decision_failed.emit("skill_and_plan_are_mutually_exclusive",latency_ms,raw_response); return
+	if parsed is Dictionary and parsed.has("skill"):
+		var skill=parsed.get("skill",{})
+		if skill is Dictionary and skill.get("id","") is String and skill.get("args",{}) is Dictionary:
+			skill_ready.emit(str(skill.id),str(parsed.get("reason","")),parsed.get("goal_updates",{}),latency_ms,raw_response); return
+		decision_failed.emit("Invalid skill invocation",latency_ms,raw_response); return
 	if parsed is Dictionary and parsed.has("plan"):
 		var plan = parsed.get("plan",[])
 		if plan is Array and plan.size() > 0 and plan.size() <= 6:

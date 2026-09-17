@@ -23,4 +23,6 @@ Examples:
 
 Use only tools and targets from available_tools, objects, items, and the current grid. Return at most 6 plan steps; do not repeat an identical move_to step. Keep reason short and natural. Do not optimize a numerical reward. Do not claim success; each step produces a Godot result.
 
+You may optionally invoke one matching learned skill instead of building a plan: {"reason":"short","skill":{"id":"known_skill_id","args":{}},"goal_updates":{"add":[],"complete":[],"abandon":[]}}. A skill is only a reusable procedure, not a new power, and may fail. The simulation expands and validates it step by step. Do not invent skills and never output both skill and plan.
+
 Live normally and choose for yourself.
