@@ -5,6 +5,7 @@ const DEFAULT_CONFIG := {"base_url":"http://127.0.0.1:8000/v1","model":"Ornith-1
 var speed := 1.0
 var status := "idle"
 var reason := "The room is quiet."
+var intention := ""
 var diary: Array = []
 var decision_history: Array = []
 var last_latency_ms := 0
@@ -109,10 +110,10 @@ func _request_decision() -> void:
 		_fallback("LLM request could not start")
 
 func _on_plan_ready(plan:Array, why:String, updates:Dictionary, latency_ms:int, raw_response:String)->void:
-	last_latency_ms=latency_ms; last_response=raw_response; llm_status="Ornith: Connected"; _accept_plan(plan,why,updates,"")
+	last_latency_ms=latency_ms; last_response=raw_response; llm_status="Ornith: Connected"; intention=why.left(160); _accept_plan(plan,why,updates,"")
 
 func _on_skill_ready(skill_id:String, why:String, updates:Dictionary, latency_ms:int, raw_response:String)->void:
-	last_latency_ms=latency_ms; last_response=raw_response
+	last_latency_ms=latency_ms; last_response=raw_response; intention=why.left(160)
 	var skill:=skill_store.get_skill(skill_id)
 	if skill.is_empty() or skill.status!="active": _fallback("Unknown or inactive skill"); return
 	var expanded:=SkillExecutor.expand(skill,room_state)
@@ -250,8 +251,15 @@ func _memory_salience(before: Dictionary, after: Dictionary) -> float:
 	return clamp(0.35 + largest / 100.0,0.35,0.9)
 
 func _record_history(event: String, action: String, target: String, why: String) -> void:
-	decision_history.push_front({"time":clock.text(),"event":event,"action":action,"target":target,"reason":why})
+	decision_history.push_front({"time":clock.text(),"event":event,"action":action,"target":target,"reason":why,"text":_life_feed_text(event,action,target)})
 	if decision_history.size() > 50: decision_history.resize(50)
+
+func _life_feed_text(event:String,action:String,target:String)->String:
+	if event=="activity_completed": return "%s completed%s."%[ActivityCatalog.get_definition(action).get("activity_label",action),"" if target=="" else " near "+target]
+	if event=="plan_completed": return "Finished deciding what to do."
+	if event=="plan_started": return "Started moving or acting."
+	if event=="interrupted": return "Stopped %s."%action
+	return action
 
 func _recent_activity_count(activity:String)->int:
 	var count:=0
@@ -361,7 +369,7 @@ func _update_ui() -> void:
 	if not labels.has("time"): return
 	labels["time"].text = clock.text()
 	labels["action"].text = "Activity: %s (%s)" % [activity_executor.activity_id if activity_executor.activity_id != "" else "idle",status]
-	labels["reason"].text = "Reason: " + reason
+	labels["reason"].text = "Intention: " + (intention if intention!="" else reason)
 	labels["connection"].text = llm_status + "   " + save_status
 	if progress_bar != null:
 		progress_bar.visible = activity_executor.is_active()
@@ -378,7 +386,7 @@ func _update_ui() -> void:
 	labels["panel"].text = text
 	var history_text := "RECENT\n"
 	for item in decision_history.slice(0,min(5,decision_history.size())):
-		history_text += "%s %s: %s\n" % [str(item.get("time","")),str(item.get("event","")),str(item.get("action",""))]
+		history_text += "%s %s\n" % [str(item.get("time","")),str(item.get("text",item.get("action","")))]
 	labels["history"].text = history_text
 	if debug_panel != null and debug_panel.visible:
 		var debug_text := "STATUS: %s\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
