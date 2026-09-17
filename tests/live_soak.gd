@@ -16,6 +16,7 @@ func _initialize() -> void:
 		if args[i]=="--speed" and i+1<args.size(): requested_speed=max(0.0,float(args[i+1]))
 		if args[i]=="--fresh": fresh_run=true
 	var scene:Node=load("res://Main.tscn").instantiate(); get_root().add_child(scene)
+	var saved_path:=ProjectSettings.globalize_path(SaveManager.SAVE_PATH); var had_save:=FileAccess.file_exists(SaveManager.SAVE_PATH); var preserved_save:=FileAccess.get_file_as_string(SaveManager.SAVE_PATH) if had_save else ""
 	# Main's _ready (save restore + initial production request) runs after add_child.
 	# Let that initial lifecycle settle, then freeze one frame so every baseline is
 	# captured from the same authoritative state. Otherwise a restored cumulative
@@ -101,6 +102,10 @@ func _initialize() -> void:
 	print("Skills failed: %d" % _delta(scene,"skills_failed",baseline))
 	print("Fatal runtime errors: not instrumented by Godot; process exit and parser/headless checks were clean")
 	print("SOAK PASS" if final_success else "SOAK FAIL")
+	if fresh_run:
+		if had_save:
+			var restore:=FileAccess.open(SaveManager.SAVE_PATH,FileAccess.WRITE); if restore: restore.store_string(preserved_save)
+		elif FileAccess.file_exists(SaveManager.SAVE_PATH): DirAccess.remove_absolute(saved_path)
 	quit(0 if final_success else 1)
 
 func _delta(scene:Node,key:String,baseline:Dictionary)->int:
