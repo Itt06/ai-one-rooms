@@ -10,6 +10,8 @@ func add(time: String, action: String, summary: String, result: String, salience
 	var text := summary.strip_edges()
 	if text == "":
 		return
+	if not entries.is_empty() and str(entries[0].get("summary","")) == text and str(entries[0].get("related_action","")) == action:
+		entries[0]["salience"] = max(float(entries[0].get("salience",0.5)),float(salience)); return
 	entries.push_front({
 		"id": "mem_%04d" % _next_id,
 		"simulation_time": time,

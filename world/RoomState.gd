@@ -60,6 +60,15 @@ func load_state(data)->void:
 			var c=data.objects[id].get("origin_cell",[]); if c is Array and c.size()>=2: objects[id].origin_cell=Vector2i(int(c[0]),int(c[1]))
 			objects[id].rotation=int(data.objects[id].get("rotation",0)); objects[id].state=data.objects[id].get("state",false); _recalculate_placement(objects[id])
 
+func repair_integrity(resident:ResidentState)->void:
+	if resident.held_item_id!="" and not items.has(resident.held_item_id): resident.held_item_id=""
+	if resident.posture_target_id!="" and not objects.has(resident.posture_target_id): resident.posture_target_id=""; resident.posture="standing"
+	if not grid.is_inside(resident.current_cell): resident.current_cell=Vector2i(5,6)
+	for id in objects:
+		if not bool(objects[id].get("movable",false)): continue
+		if not bool(validate_object_placement(id,objects[id].origin_cell,int(objects[id].rotation)).get("ok",false)):
+			objects[id].origin_cell=Vector2i(8,6); _recalculate_placement(objects[id])
+
 func blocked_cells() -> Array:
 	var result:Array=[]
 	for id in objects:
@@ -67,26 +76,26 @@ func blocked_cells() -> Array:
 			for cell in objects[id].get("occupied_cells",[]): result.append(cell)
 	return result
 
-func move_object(object_id:String, origin:Vector2i, rotation:int)->Dictionary:
+func move_object(object_id:String, origin:Vector2i, rotation:int, additional_blocked:Array=[])->Dictionary:
 	if not objects.has(object_id) or not bool(objects[object_id].get("movable",false)): return {"ok":false,"error":"object_not_movable"}
 	var object:Dictionary=objects[object_id]; var old_origin:Vector2i=object.origin_cell; var old_rotation:int=object.rotation
 	object.origin_cell=origin; object.rotation=rotation; _recalculate_placement(object)
 	for cell in object.occupied_cells:
-		if not grid.is_inside(cell) or cell in blocked_cells_excluding(object_id) or cell==Vector2i(5,6): object.origin_cell=old_origin; object.rotation=old_rotation; _recalculate_placement(object); return {"ok":false,"error":"placement_collision_or_escape"}
+		if not grid.is_inside(cell) or cell in blocked_cells_excluding(object_id) or cell in additional_blocked: object.origin_cell=old_origin; object.rotation=old_rotation; _recalculate_placement(object); return {"ok":false,"error":"placement_collision_or_escape"}
 	return {"ok":true,"object":object_id,"origin_cell":[origin.x,origin.y],"rotation":rotation}
 
-func rotate_object(object_id:String, rotation:int)->Dictionary:
+func rotate_object(object_id:String, rotation:int, additional_blocked:Array=[])->Dictionary:
 	if rotation not in [0,90,180,270]: return {"ok":false,"error":"invalid_rotation"}
 	if not objects.has(object_id): return {"ok":false,"error":"object_not_found"}
-	return move_object(object_id,objects[object_id].origin_cell,rotation)
+	return move_object(object_id,objects[object_id].origin_cell,rotation,additional_blocked)
 
-func validate_object_placement(object_id:String, origin:Vector2i, rotation:int)->Dictionary:
+func validate_object_placement(object_id:String, origin:Vector2i, rotation:int, additional_blocked:Array=[])->Dictionary:
 	if not objects.has(object_id) or not bool(objects[object_id].get("movable",false)): return {"ok":false,"error":"object_not_movable"}
 	var size:=Vector2i(1,1); if object_id=="bed":size=Vector2i(2,2)
 	if rotation in [90,270]:size=Vector2i(size.y,size.x)
 	var cells:Array=[]; for y in size.y: for x in size.x: cells.append(origin+Vector2i(x,y))
 	for cell in cells:
-		if not grid.is_inside(cell) or cell in blocked_cells_excluding(object_id) or cell==Vector2i(5,6): return {"ok":false,"error":"placement_collision_or_escape"}
+		if not grid.is_inside(cell) or cell in blocked_cells_excluding(object_id) or cell in additional_blocked: return {"ok":false,"error":"placement_collision_or_escape"}
 	return {"ok":true}
 
 func blocked_cells_excluding(excluded:String)->Array:

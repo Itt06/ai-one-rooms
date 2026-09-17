@@ -35,6 +35,7 @@ var plan_moving := false
 var plan_history := PlanHistory.new()
 var skill_store := SkillStore.new()
 var current_skill_id := ""
+var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"tool_frequency":{}}
 
 func _ready() -> void:
 	_load_game()
@@ -83,6 +84,7 @@ func _request_decision() -> void:
 	if harness == null or harness.is_busy() or status == "thinking":
 		return
 	var candidates := ActionCatalog.candidates(room_state)
+	diagnostics.total_decisions+=1
 	var action_ids: Array = []
 	for candidate in candidates:
 		action_ids.append(str(candidate.get("id","")))
@@ -94,7 +96,8 @@ func _request_decision() -> void:
 	last_retrieved_memory_ids = []
 	for memory in memories:
 		last_retrieved_memory_ids.append(str(memory.get("id","")))
-	var observation := ObservationBuilder.build(clock,needs_model,room_state,person_pos,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,preferences.habit_summary(),{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},skill_store.relevant(room_state,resident_state.held_item_id,needs_model.values))
+	var available_skills:=skill_store.relevant(room_state,resident_state.held_item_id,needs_model.values)
+	var observation := ObservationBuilder.build(clock,needs_model,room_state,person_pos,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,preferences.habit_summary(),{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},available_skills,_recent_behavior())
 	last_observation = JSON.stringify(observation)
 	status = "thinking"
 	validation_error = ""
@@ -116,23 +119,24 @@ func _on_decision_ready(decision: Dictionary, latency_ms: int, raw_response: Str
 	_start_action(str(action.get("id","wait")),str(action.get("target","")),str(normalized.get("reason","")))
 
 func _on_plan_ready(plan:Array, why:String, updates:Dictionary, latency_ms:int, raw_response:String)->void:
-	last_latency_ms=latency_ms; last_response=raw_response; current_skill_id=""; goal_store.apply(updates); reason=why if why!="" else "I am deciding what to do."; plan_executor.begin(plan,reason); status="acting"; _record_history("plan_started",plan_executor.plan_id,"",reason); _run_plan_step()
+	last_latency_ms=latency_ms; last_response=raw_response; current_skill_id=""; goal_store.apply(updates); reason=why if why!="" else "I am deciding what to do."; plan_executor.begin(plan,reason); diagnostics.plans_started+=1; status="acting"; _record_history("plan_started",plan_executor.plan_id,"",reason); _run_plan_step()
 
 func _on_skill_ready(skill_id:String, why:String, updates:Dictionary, latency_ms:int, raw_response:String)->void:
 	last_latency_ms=latency_ms; last_response=raw_response
 	var skill:=skill_store.get_skill(skill_id)
 	if skill.is_empty() or skill.status!="active": _fallback("Unknown or inactive skill"); return
 	var expanded:=SkillExecutor.expand(skill,room_state)
-	if expanded.is_empty(): skill_store.mark_used(skill_id,false); _fallback("Skill target resolution failed"); return
-	goal_store.apply(updates); current_skill_id=skill_id; reason=why if why!="" else skill.description; plan_executor.begin(expanded,reason); status="acting"; _run_plan_step()
+	if expanded.is_empty(): skill_store.mark_used(skill_id,false); diagnostics.skills_failed+=1; _fallback("Skill target resolution failed"); return
+	goal_store.apply(updates); current_skill_id=skill_id; diagnostics.skills_invoked+=1; reason=why if why!="" else skill.description; plan_executor.begin(expanded,reason); status="acting"; _run_plan_step()
 
 func _run_plan_step()->void:
 	if not plan_executor.active:return
 	var step:=plan_executor.current(); var resident_data={"current_cell":resident_state.current_cell,"held_item_id":resident_state.held_item_id}
 	var checked:=PrimitiveToolValidator.validate(step,room_state,room_state.grid,resident_data,room_state.items)
 	if not bool(checked.get("ok",false)):
-		_abort_plan(str(checked.get("error","tool rejected"))); return
+		diagnostics.semantic_rejections+=1; _abort_plan(str(checked.get("error","tool rejected"))); return
 	var tool:=str(step.get("tool","")); var step_args:Dictionary=step.get("args",{}); var target:=str(step_args.get("target",""))
+	var frequency:Dictionary=diagnostics.get("tool_frequency",{}); frequency[tool]=int(frequency.get(tool,0))+1; diagnostics["tool_frequency"]=frequency
 	if tool=="move_near":
 		if not _begin_plan_move(target): _abort_plan("target_unreachable")
 		return
@@ -153,8 +157,9 @@ func _begin_plan_move_cell(destination:Vector2i)->bool:
 func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->void:
 	var done:=plan_executor.advance(result)
 	if done:
+		diagnostics.plans_completed+=1
 		plan_history.add(plan_executor.plan_id,plan_executor.reason,plan_executor.plan,plan_executor.results,true,clock.text(),clock.text())
-		if current_skill_id!="": skill_store.mark_used(current_skill_id,true)
+		if current_skill_id!="": skill_store.mark_used(current_skill_id,true); diagnostics.skills_completed+=1
 		skill_store.learn(plan_history.entries,room_state)
 		memory_store.add(clock.text(),"plan", "I followed a plan: %s." % ", ".join(plan_executor.plan.map(func(step): return str(step.get("tool","")))),"completed",0.55,[],needs_model.values)
 		_record_history("plan_completed",plan_executor.plan_id,"",reason); status="idle"; decision_cooldown=0.5; _save_game()
@@ -163,8 +168,9 @@ func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->vo
 
 func _abort_plan(failure_reason:String)->void:
 	plan_executor.abort({"ok":false,"error":failure_reason})
+	diagnostics.plans_aborted+=1
 	plan_history.add(plan_executor.plan_id,plan_executor.reason,plan_executor.plan,plan_executor.results,false,clock.text(),clock.text(),"aborted",failure_reason)
-	if current_skill_id!="": skill_store.mark_used(current_skill_id,false)
+	if current_skill_id!="": skill_store.mark_used(current_skill_id,false); diagnostics.skills_failed+=1
 	current_skill_id=""; validation_error=failure_reason; status="idle"; decision_cooldown=0.5; _save_game()
 
 func _on_decision_failed(error_message: String, latency_ms: int, raw_response: String) -> void:
@@ -226,6 +232,7 @@ func _check_interrupt() -> void:
 			decision_cooldown = 0.25
 
 func _fallback(message: String) -> void:
+	diagnostics.fallback_waits+=1
 	validation_error = message
 	reason = "%s; I will wait." % message
 	if action_executor.is_active():
@@ -281,6 +288,7 @@ func _save_game() -> void:
 		"resident_state":resident_state.serialize(),
 		"plan_history":plan_history.serialize(),
 		"skills":skill_store.serialize(),
+		"diagnostics":diagnostics,
 		"resident_position":[person_pos.x,person_pos.y]
 	})
 
@@ -306,6 +314,8 @@ func _load_game() -> void:
 	resident_state.load_state(data.get("resident_state",{})); resident_state.render_position=person_pos
 	plan_history.load_state(data.get("plan_history",[]))
 	skill_store.load_state(data.get("skills",{}))
+	room_state.repair_integrity(resident_state)
+	var loaded_diagnostics=data.get("diagnostics",{}); if loaded_diagnostics is Dictionary: diagnostics=loaded_diagnostics.duplicate(true)
 
 func _add_room_art() -> void:
 	var texture := load("res://assets/room_background.png") as Texture2D
@@ -360,7 +370,7 @@ func _update_ui() -> void:
 		history_text += "%s %s: %s\n" % [str(item.get("time","")),str(item.get("event","")),str(item.get("action",""))]
 	labels["history"].text = history_text
 	if debug_panel != null and debug_panel.visible:
-		var debug_text := "STATUS: %s\nVALIDATION: %s\nRETRIEVED: %s\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,validation_error,JSON.stringify(last_retrieved_memory_ids),last_observation.left(4500),last_response.left(2500)]
+		var debug_text := "STATUS: %s\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
 		debug_label.text = debug_text
 
 func _draw() -> void:
@@ -385,3 +395,11 @@ func _activity_text()->String:
 	if resident_state.posture=="sitting":return "sitting"
 	if plan_executor.active:return "performing primitive"
 	return "waiting" if status=="idle" else status
+
+func _recent_behavior()->Dictionary:
+	if decision_history.size()<2:return {}
+	var last:=str(decision_history[0].get("action","")); var count:=0
+	for row in decision_history:
+		if str(row.get("action",""))==last:count+=1
+		else:break
+	return {"repeated_pattern":last,"repeat_count":count} if count>=3 else {}

@@ -129,6 +129,14 @@ godot --headless --path . --script res://tests/run_tests.gd
 
 The suite covers needs, candidate generation, invalid actions, action effects, memory retrieval, and goals.
 
+The local Ornith benchmark uses the production prompt and the real decision/tool validators without writing the game save:
+
+```text
+godot --headless --path . --script res://tests/live_ornith_regression.gd -- --runs 1
+```
+
+It covers eight compact scenarios per run. For a low-cost smoke, select only the scenarios needed for the change, for example `--scenario read_book,skill,no_useful_action`.
+
 ## Scope
 
 The simulation is intentionally small. There is currently no town, work, money, other autonomous NPCs, internet access, OS control, combat, or colony management.
@@ -139,4 +147,4 @@ The design goal is not to script a productive routine. Needs are pressures rathe
 
 The current branch adds `RoomGrid`, `ResidentState`, `PrimitiveToolCatalog`, `PrimitiveToolValidator`, `PrimitiveToolExecutor`, `PlanExecutor`, and `PlanHistory`. Ornith may return a short plan of up to six tools such as `move_near`, `pick_up`, `sit`, and `read`; each step is validated against the current authoritative world before the next step begins. `move_to` accepts integer grid cells only. Legacy high-level actions remain available as a compatibility path.
 
-Save schema version is now 3 and includes resident cell/posture/held item and bounded plan history. The project still intentionally excludes towns, jobs, money, internet, OS control, shell execution, and other autonomous NPCs.
+Save schema version is now 4 and includes resident cell/posture/held item, object placement/state, item locations, diagnostics, and bounded plan history. The project still intentionally excludes towns, jobs, money, internet, OS control, shell execution, and other autonomous NPCs.
