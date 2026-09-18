@@ -495,7 +495,7 @@ func _add_need_debug_row(key:String)->void:
 	var value_label:=Label.new(); value_label.custom_minimum_size=Vector2(45,0); row.add_child(value_label)
 	debug_need_sliders[key]=slider; debug_need_value_labels[key]=value_label
 	var update_value:=func(value:float)->void:
-		var clamped:=clamp(value,0.0,100.0); needs_model.values[key]=clamped; value_label.text="%d" % int(clamped); _update_ui()
+		var clamped:float=clamp(value,0.0,100.0); needs_model.values[key]=clamped; value_label.text="%d" % int(clamped); _update_ui()
 	slider.value_changed.connect(update_value); update_value.call(slider.value)
 
 func _add_cleanliness_debug_row()->void:
@@ -509,11 +509,11 @@ func _add_cleanliness_debug_row()->void:
 
 func _debug_sync_controls()->void:
 	for key in debug_need_sliders:
-		var value:=clamp(float(needs_model.values.get(key,0.0)),0.0,100.0)
+		var value:float=clamp(float(needs_model.values.get(key,0.0)),0.0,100.0)
 		debug_need_sliders[key].set_value_no_signal(value)
 		debug_need_value_labels[key].text="%d" % int(value)
 	if debug_cleanliness_slider!=null:
-		var cleanliness:=clamp(float(room_state.cleanliness),0.0,100.0)
+		var cleanliness:float=clamp(float(room_state.cleanliness),0.0,100.0)
 		debug_cleanliness_slider.set_value_no_signal(cleanliness)
 		debug_cleanliness_value_label.text="%d" % int(cleanliness)
 
