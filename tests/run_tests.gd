@@ -21,6 +21,7 @@ func _initialize() -> void:
 	_test_multiday_world_dynamics()
 	_test_habit_periods()
 	_test_v20_observer_data()
+	_test_v21_presentation_contract()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -62,6 +63,16 @@ func _test_v20_observer_data() -> void:
 	_check(str(ranked[0].get("related_action",""))=="use_pc", "without current topics, tool availability should only use related action scoring")
 	_check(ObserverContext.relevant_memory_note({"summary":"Reading helped me relax."}).begins_with("Relevant memory:"), "observer memory note must not claim causal decision use")
 	var observation:=ObservationBuilder.build(WorldClock.new(),ResidentNeeds.new(),RoomState.new(),Vector2.ZERO,"idle",[],[],{},[],{},{}); _check(not observation.has("available_actions") and observation.has("available_tools"), "obsolete available_actions contract should be absent")
+
+func _test_v21_presentation_contract() -> void:
+	for activity in ActivityCatalog.DEFINITIONS.keys():
+		_check(ObserverText.activity_label(str(activity)) != str(activity), "activity needs Japanese label: %s" % activity)
+		_check(ObserverText.PREFS.has(str(activity)), "activity needs Japanese preference label: %s" % activity)
+	_check(ObserverText.status_label("thinking") == "考え中", "thinking must be Japanese")
+	_check(not ObserverText.connection_label("Ornith: Offline").contains("Ornith"), "connection must hide provider prefix")
+	_check(ObserverText.time_label("Day 3 21:40","night").contains("3日"), "diary time should be Japanese")
+	_check(not ObserverText.habit_label("often read in the evening").contains("often"), "habit presentation must hide raw English")
+	_check(ObserverText.skill_label({"steps":[{"tool":"move_near"},{"tool":"pick_up"},{"tool":"read"}]}) == "本棚から本を取って読む", "skill presentation should be human-readable")
 
 func _test_candidates_and_validation() -> void:
 	var room := RoomState.new()
