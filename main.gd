@@ -302,6 +302,7 @@ func _life_feed_text(event:String,action:String,target:String)->String:
 
 func _observer_feed_text(event:String,action:String,target:String,why:String)->String:
 	var time_text:=ObserverText.time_label(clock.text(),str(clock.snapshot().get("period",""))).replace("　朝","").replace("　昼","").replace("　夕方","").replace("　夜","")
+	if action.begins_with("plan_") or action=="": return "%s　次にすることを考えた" % time_text
 	if event in ["preference_transition","habit_transition","skill_learned"]: return "%s　暮らし方に小さな変化があった" % time_text
 	if event=="activity_completed":
 		return "%s　%s" % [time_text,ObserverText.activity_completed_label(action)]
@@ -406,7 +407,7 @@ func _build_ui() -> void:
 	labels["action"] = _label(Vector2(920,58),"",18)
 	labels["reason"] = _label(Vector2(920,90),"",14); labels["reason"].size = Vector2(345,54); labels["reason"].autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	labels["connection"] = _label(Vector2(920,150),"",13)
-	labels["panel"] = _label(Vector2(920,180),"",13); labels["panel"].size = Vector2(345,300)
+	labels["panel"] = _label(Vector2(920,180),"",12); labels["panel"].size = Vector2(345,285); labels["panel"].clip_text=true
 	progress_bar = ProgressBar.new(); progress_bar.position=Vector2(920,485); progress_bar.size=Vector2(345,18); progress_bar.visible=false; add_child(progress_bar)
 	life_feed_label=_label(Vector2(40,548),"",12); life_feed_label.size=Vector2(830,105); life_feed_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	personality_label=_label(Vector2(895,548),"",12); personality_label.size=Vector2(360,105); personality_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
@@ -444,10 +445,8 @@ func _update_ui() -> void:
 	var pref_summary := preferences.summary()
 	var habit_lines:Array=[]
 	for habit in habit_store.summary(): habit_lines.append(ObserverText.habit_label(str(habit)))
-	text += "\n目標：" + ("まだない\n" if goal_store.active_texts().is_empty() else "あり\n")
 	var skill_names:Array=[]
 	for skill in skill_store.skills.slice(0,min(5,skill_store.skills.size())): skill_names.append(ObserverText.skill_label(skill))
-	text += "\n姿勢：%s" % ["横になっている" if resident_state.posture=="lying" else ("座っている" if resident_state.posture=="sitting" else "立っている")]
 	labels["panel"].text = text
 	var history_text := "最近の出来事\n"
 	for item in decision_history.slice(0,min(5,decision_history.size())):
@@ -460,8 +459,8 @@ func _update_ui() -> void:
 		personality += "・%sを%s\n" % [ObserverText.PREFS.get(key,"ある行動"),"少し好む" if float(pref_summary[key])>0.0 else "少し避ける"]
 		shown_preferences+=1
 		if shown_preferences>=2: break
-	for line in habit_lines.slice(0,3): personality += "・%s\n" % line
-	for line in skill_names.slice(0,2): personality += "・%s\n" % line
+	for line in habit_lines.slice(0,2): personality += "・%s\n" % line
+	for line in skill_names.slice(0,1): personality += "・%s\n" % line
 	if habit_lines.is_empty() and skill_names.is_empty(): personality += "・暮らしの傾向を観察中"
 	if personality_label != null: personality_label.text=personality
 	if debug_panel != null and debug_panel.visible:
@@ -481,9 +480,7 @@ func _draw() -> void:
 	for id in room_state.objects:
 		var object:Dictionary=room_state.objects[id]; var p:Vector2=object.position
 		if object.has("origin_cell"): p=RoomVisualAdapter.cell_to_position(object.origin_cell)
-		var furniture_color:=Color("#9b6b4f") if not bool(object.get("movable",false)) else Color("#c78f6b")
-		draw_rect(Rect2(p-Vector2(30,22),Vector2(60,44)),furniture_color)
-		draw_rect(Rect2(p-Vector2(25,17),Vector2(50,5)),Color(1,0.9,0.7,0.25))
+		_draw_furniture(str(id),p)
 	var render_position:=resident_state.render_position
 	var activity:=activity_executor.activity_id
 	var frame:=int(Time.get_ticks_msec()/350)%2
@@ -494,6 +491,42 @@ func _draw() -> void:
 	else:
 		draw_circle(render_position,24,Color("#4fc3f7"))
 	if status in ["acting","moving"]: draw_circle(render_position+Vector2(0,-54),5,Color("#fff176"))
+
+func _draw_furniture(id:String,p:Vector2)->void:
+	var wood:=Color("#8b5e45"); var light:=Color("#d7b98e"); var metal:=Color("#a9b0ad"); var dark:=Color("#374247")
+	match id:
+		"bed":
+			draw_rect(Rect2(p-Vector2(44,22),Vector2(88,44)),wood); draw_rect(Rect2(p-Vector2(38,17),Vector2(76,31)),Color("#9fb0a2")); draw_rect(Rect2(p-Vector2(34,15),Vector2(24,12)),Color("#eee7d8"))
+		"desk":
+			draw_rect(Rect2(p-Vector2(42,18),Vector2(84,12)),wood); draw_line(p+Vector2(-34,-6),p+Vector2(-34,24),wood,6); draw_line(p+Vector2(34,-6),p+Vector2(34,24),wood,6)
+		"chair":
+			draw_rect(Rect2(p-Vector2(18,8),Vector2(36,20)),light); draw_rect(Rect2(p-Vector2(18,27),Vector2(36,19)),light); draw_line(p+Vector2(-14,12),p+Vector2(-14,27),wood,4); draw_line(p+Vector2(14,12),p+Vector2(14,27),wood,4)
+		"bookshelf":
+			draw_rect(Rect2(p-Vector2(28,34),Vector2(56,68)),wood); for y in [-15,5,25]: draw_line(p+Vector2(-23,y),p+Vector2(23,y),light,3)
+		"fridge":
+			draw_rect(Rect2(p-Vector2(25,35),Vector2(50,70)),Color("#d9d8cf")); draw_line(p+Vector2(-25,0),p+Vector2(25,0),metal,2); draw_line(p+Vector2(15,-25),p+Vector2(15,-8),dark,3)
+		"sink":
+			draw_rect(Rect2(p-Vector2(32,18),Vector2(64,42)),Color("#c7b9a5")); draw_rect(Rect2(p-Vector2(22,13),Vector2(44,15)),metal); draw_arc(p+Vector2(0,-12),10,PI,TAU,12,dark,3)
+		"pc":
+			draw_rect(Rect2(p-Vector2(27,25),Vector2(54,35)),dark); draw_rect(Rect2(p-Vector2(22,20),Vector2(44,25)),Color("#476a73")); draw_line(p+Vector2(0,10),p+Vector2(0,22),dark,4)
+		"tv":
+			draw_rect(Rect2(p-Vector2(38,27),Vector2(76,48)),dark); draw_rect(Rect2(p-Vector2(32,21),Vector2(64,36)),Color("#607d8b")); draw_line(p+Vector2(-12,23),p+Vector2(12,23),dark,5)
+		"window":
+			draw_rect(Rect2(p-Vector2(38,30),Vector2(76,60)),Color("#8eb7c7")); draw_line(p+Vector2(0,-30),p+Vector2(0,30),Color.WHITE,3); draw_line(p+Vector2(-38,0),p+Vector2(38,0),Color.WHITE,3)
+		"trash_bin":
+			draw_colored_polygon(PackedVector2Array([p+Vector2(-20,-18),p+Vector2(20,-18),p+Vector2(15,24),p+Vector2(-15,24)]),Color("#777a72")); draw_line(p+Vector2(-22,-20),p+Vector2(22,-20),dark,4)
+		"shower":
+			draw_rect(Rect2(p-Vector2(29,38),Vector2(58,76)),Color(0.65,0.82,0.86,0.45)); draw_line(p+Vector2(-29,-38),p+Vector2(-29,38),metal,3); draw_line(p+Vector2(29,-38),p+Vector2(29,38),metal,3); draw_arc(p+Vector2(12,-19),12,PI,TAU,12,dark,3)
+		"toilet":
+			draw_rect(Rect2(p-Vector2(18,30),Vector2(36,27)),Color("#e6e2d7")); draw_ellipse_fallback(p+Vector2(0,10),Vector2(27,18),Color("#eeeae0"))
+		_:
+			draw_rect(Rect2(p-Vector2(24,18),Vector2(48,36)),wood)
+
+func draw_ellipse_fallback(center:Vector2,radius:Vector2,color:Color)->void:
+	var points:=PackedVector2Array()
+	for i in 24:
+		var angle:=TAU*float(i)/24.0; points.append(center+Vector2(cos(angle)*radius.x,sin(angle)*radius.y))
+	draw_colored_polygon(points,color)
 
 func _activity_text()->String:
 	if status=="moving":return "移動中"
