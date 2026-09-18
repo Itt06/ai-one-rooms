@@ -1,6 +1,8 @@
 class_name PartnerVisualState
 extends RefCounted
 
+signal visit_finished(contact_id: String)
+
 enum Phase { HIDDEN, ENTERING, APPROACHING, WAITING, AT_BED, INTIMATE, LEAVING }
 
 const ENTRANCE := Vector2(835,500)
@@ -39,7 +41,9 @@ func end_visit()->void:
 	if phase!=Phase.HIDDEN: phase=Phase.LEAVING; target_position=ENTRANCE
 
 func reset()->void:
+	var finished_contact:=contact_id
 	phase=Phase.HIDDEN; contact_id=""; relation_type=""; position=ENTRANCE; target_position=ENTRANCE; visual_variant="default"
+	if finished_contact!="": visit_finished.emit(finished_contact)
 
 func phase_name()->String:
 	return ["HIDDEN","ENTERING","APPROACHING","WAITING","AT_BED","INTIMATE","LEAVING"][int(phase)]

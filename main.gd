@@ -62,6 +62,7 @@ func _ready() -> void:
 	resident_supplemental_atlas = load(ResidentVisualAdapter.SUPPLEMENTAL_PATH) as Texture2D
 	config_data = _config()
 	_load_game()
+	partner_visual.visit_finished.connect(_on_partner_visit_finished)
 	harness = ResidentHarness.new()
 	add_child(harness)
 	harness.decision_failed.connect(_on_decision_failed)
@@ -220,7 +221,7 @@ func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->vo
 func _finish_activity()->void:
 	var id:=activity_executor.activity_id; var target:=activity_executor.target_id
 	if id in ["meet_contact","sex"]:
-		partner_visual.end_visit(); _record_history("partner_left",id,target,"")
+		partner_visual.end_visit()
 	var relationship_outcome:=""
 	if id=="order_groceries" and not finance.spend(ResidentFinance.GROCERIES_COST,"groceries",clock.text()):diagnostics.activities_failed+=1;_abort_plan("cannot_afford_groceries");return
 	if id=="sex":
@@ -327,6 +328,9 @@ func _memory_salience(before: Dictionary, after: Dictionary) -> float:
 	for key in before:
 		largest = max(largest,abs(float(before.get(key,0.0)) - float(after.get(key,0.0))))
 	return clamp(0.35 + largest / 100.0,0.35,0.9)
+
+func _on_partner_visit_finished(contact_id: String) -> void:
+	_record_history("partner_left", "", contact_id, "")
 
 func _record_history(event: String, action: String, target: String, why: String) -> void:
 	decision_history.push_front({"time":clock.text(),"event":event,"action":action,"target":target,"reason":why,"text":_life_feed_text(event,action,target),"observer_text":_observer_feed_text(event,action,target,why)})
@@ -641,12 +645,6 @@ func _draw() -> void:
 		draw_circle(render_position,24,Color("#4fc3f7"))
 	if activity=="masturbate" and int(room_state.resources.get("tissues",0))>0:
 		draw_rect(Rect2(render_position+Vector2(24,-10),Vector2(10,8)),Color("#f7f4ea"),true)
-	if activity=="sex":
-		# Presentation-only partner silhouette; no state, needs, or decision logic.
-		var partner_position:=render_position+Vector2(42,0)
-		draw_circle(partner_position+Vector2(0,-28),10,Color("#c48b6b"))
-		draw_rect(Rect2(partner_position+Vector2(-10,-18),Vector2(20,28)),Color("#6f8791"),true)
-		draw_circle(render_position+Vector2(20,-62),4,Color("#f48fb1"))
 	if partner_visual.phase!=PartnerVisualState.Phase.HIDDEN:
 		var partner_tint:=Color("#c48b6b")
 		match partner_visual.visual_variant:

@@ -5,7 +5,7 @@ const PAID_COST:=12000
 var contacts:Dictionary={
 	"girlfriend_01":{"id":"girlfriend_01","display_name":"恋人","relation_type":"girlfriend","adult":true,"relationship":72,"trust":80,"attraction":75,"intimacy_interest":70,"availability":true,"recent_contact_time":"","last_interaction":"","flags":[]},
 	"friend_01":{"id":"friend_01","display_name":"友人","relation_type":"friend","adult":true,"relationship":60,"trust":65,"attraction":30,"intimacy_interest":20,"availability":true,"recent_contact_time":"","last_interaction":"","flags":[]},
-	"ex_01":{"id":"ex_01","display_name":"元恋人","relation_type":"ex","relationship":42,"trust":35,"attraction":58,"intimacy_interest":45,"availability":false,"recent_contact_time":"","last_interaction":"","flags":[]},
+	"ex_01":{"id":"ex_01","display_name":"元恋人","relation_type":"ex","adult":true,"relationship":42,"trust":35,"attraction":58,"intimacy_interest":45,"availability":false,"recent_contact_time":"","last_interaction":"","flags":[]},
 	"dating_match_01":{"id":"dating_match_01","display_name":"マッチした相手","relation_type":"dating_match","adult":true,"relationship":20,"trust":25,"attraction":65,"intimacy_interest":50,"availability":true,"recent_contact_time":"","last_interaction":"","flags":[]},
 	"casual_partner_01":{"id":"casual_partner_01","display_name":"親しい相手","relation_type":"casual_partner","adult":true,"relationship":32,"trust":45,"attraction":70,"intimacy_interest":72,"availability":true,"recent_contact_time":"","last_interaction":"","flags":[]},
 	"sex_worker_01":{"id":"sex_worker_01","display_name":"有料サービス","relation_type":"sex_worker","adult":true,"relationship":0,"trust":50,"attraction":50,"intimacy_interest":100,"availability":true,"recent_contact_time":"","last_interaction":"","flags":[]},

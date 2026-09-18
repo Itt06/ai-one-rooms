@@ -404,14 +404,19 @@ func _test_felt_pressures()->void:
 
 func _test_partner_visual_state()->void:
 	var visual:=PartnerVisualState.new(); var relation:={"id":"girlfriend_01","relation_type":"girlfriend","adult":true}
+	var finished:Array=[]; visual.visit_finished.connect(func(contact_id:String): finished.append(contact_id))
 	_check(visual.begin_visit(relation,"sex",Vector2(400,400)),"adult accepted partner should appear")
 	_check(visual.phase!=PartnerVisualState.Phase.HIDDEN and visual.visual_variant=="warm","partner variant should be deterministic")
 	visual.update(0.1,"sex",Vector2(400,400)); _check(visual.position==PartnerVisualState.ENTRANCE or visual.phase!=PartnerVisualState.Phase.HIDDEN,"partner should enter from entrance")
 	visual.end_visit(); _check(visual.phase==PartnerVisualState.Phase.LEAVING,"sex end should begin leaving")
 	visual.update(10.0,"sex",Vector2(400,400)); _check(visual.phase==PartnerVisualState.Phase.HIDDEN,"partner should disappear after leaving")
+	_check(finished==["girlfriend_01"],"partner departure should be reported only after hidden")
 	var family:=PartnerVisualState.new(); _check(not family.begin_visit({"id":"family","relation_type":"family","adult":true},"sex",Vector2.ZERO),"family must not appear for sex")
 	var minor:=PartnerVisualState.new(); _check(not minor.begin_visit({"id":"minor","relation_type":"dating_match","adult":false},"sex",Vector2.ZERO),"non-adult must not appear for sex")
 	var self_visit:=PartnerVisualState.new(); _check(not self_visit.begin_visit({},"sex",Vector2.ZERO),"missing contact must not appear")
+	var relationships:=RelationshipStore.new()
+	_check(bool(relationships.contacts.ex_01.get("adult",false)),"ex contact should retain adult eligibility flag")
+	_check(not ("family_member_01" in relationships.sex_partner_candidates(999999)),"family must remain excluded from sexual candidates")
 
 func _test_v24_private_activity_consequences()->void:
 	var room:=RoomState.new(); var resident:=ResidentState.new(); var needs:=ResidentNeeds.new(); resident.current_cell=room.objects.sink.interaction_cells[0]
