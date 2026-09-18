@@ -26,6 +26,7 @@ func _initialize() -> void:
 	_test_v23_life_systems()
 	_test_v24_private_activity_consequences()
 	_test_felt_pressures()
+	_test_partner_visual_state()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -400,6 +401,17 @@ func _test_felt_pressures()->void:
 	_check(str(updated.need_states.sexual_desire)!="critical","sexual desire must not be critical")
 	var pressures:=ObservationBuilder.felt_pressures(needs); _check(str(pressures[0].need)=="sexual_desire","felt pressures should be strongest first")
 	_check(not updated.has("recommended_action") and not updated.has("suggested_action"),"felt pressures must not prescribe actions")
+
+func _test_partner_visual_state()->void:
+	var visual:=PartnerVisualState.new(); var relation:={"id":"girlfriend_01","relation_type":"girlfriend","adult":true}
+	_check(visual.begin_visit(relation,"sex",Vector2(400,400)),"adult accepted partner should appear")
+	_check(visual.phase!=PartnerVisualState.Phase.HIDDEN and visual.visual_variant=="warm","partner variant should be deterministic")
+	visual.update(0.1,"sex",Vector2(400,400)); _check(visual.position==PartnerVisualState.ENTRANCE or visual.phase!=PartnerVisualState.Phase.HIDDEN,"partner should enter from entrance")
+	visual.end_visit(); _check(visual.phase==PartnerVisualState.Phase.LEAVING,"sex end should begin leaving")
+	visual.update(10.0,"sex",Vector2(400,400)); _check(visual.phase==PartnerVisualState.Phase.HIDDEN,"partner should disappear after leaving")
+	var family:=PartnerVisualState.new(); _check(not family.begin_visit({"id":"family","relation_type":"family","adult":true},"sex",Vector2.ZERO),"family must not appear for sex")
+	var minor:=PartnerVisualState.new(); _check(not minor.begin_visit({"id":"minor","relation_type":"dating_match","adult":false},"sex",Vector2.ZERO),"non-adult must not appear for sex")
+	var self_visit:=PartnerVisualState.new(); _check(not self_visit.begin_visit({},"sex",Vector2.ZERO),"missing contact must not appear")
 
 func _test_v24_private_activity_consequences()->void:
 	var room:=RoomState.new(); var resident:=ResidentState.new(); var needs:=ResidentNeeds.new(); resident.current_cell=room.objects.sink.interaction_cells[0]
