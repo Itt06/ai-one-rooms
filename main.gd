@@ -21,6 +21,8 @@ var debug_label: Label
 var furniture_atlas: Texture2D
 var resident_atlas: Texture2D
 var progress_bar: ProgressBar
+var life_feed_label: Label
+var personality_label: Label
 var config_data: Dictionary = DEFAULT_CONFIG.duplicate(true)
 var save_status := "Auto-save on"
 var llm_status := "Ornith: Offline"
@@ -59,7 +61,6 @@ func _ready() -> void:
 	harness.plan_ready.connect(_on_plan_ready)
 	harness.skill_ready.connect(_on_skill_ready)
 	resident_state.render_position = _cell_to_position(resident_state.current_cell)
-	_add_room_art()
 	_build_ui()
 	queue_redraw()
 	_request_decision()
@@ -402,21 +403,22 @@ func _add_room_art() -> void:
 
 func _build_ui() -> void:
 	labels["time"] = _label(Vector2(920,20),"",23)
-	labels["action"] = _label(Vector2(920,56),"",18)
-	labels["reason"] = _label(Vector2(920,88),"",14); labels["reason"].size = Vector2(345,62)
-	labels["panel"] = _label(Vector2(920,155),"",13); labels["panel"].size = Vector2(345,345)
-	labels["history"] = _label(Vector2(920,505),"",12); labels["history"].size = Vector2(345,125)
-	labels["connection"] = _label(Vector2(920,130),"",13)
-	progress_bar = ProgressBar.new(); progress_bar.position=Vector2(920,430); progress_bar.size=Vector2(345,22); progress_bar.visible=false; add_child(progress_bar)
-	var save := Button.new(); save.text = "保存"; save.position = Vector2(920,660); save.pressed.connect(_save_game); add_child(save)
-	var pause := Button.new(); pause.text = "一時停止"; pause.position = Vector2(985,660); pause.pressed.connect(func(): speed = 0.0 if speed > 0.0 else 1.0); add_child(pause)
-	var speeds := OptionButton.new(); speeds.position = Vector2(1060,660)
+	labels["action"] = _label(Vector2(920,58),"",18)
+	labels["reason"] = _label(Vector2(920,90),"",14); labels["reason"].size = Vector2(345,54); labels["reason"].autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	labels["connection"] = _label(Vector2(920,150),"",13)
+	labels["panel"] = _label(Vector2(920,180),"",13); labels["panel"].size = Vector2(345,300)
+	progress_bar = ProgressBar.new(); progress_bar.position=Vector2(920,485); progress_bar.size=Vector2(345,18); progress_bar.visible=false; add_child(progress_bar)
+	life_feed_label=_label(Vector2(40,555),"",12); life_feed_label.size=Vector2(830,125); life_feed_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	personality_label=_label(Vector2(890,555),"",12); personality_label.size=Vector2(370,125); personality_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	var save := Button.new(); save.text = "保存"; save.position = Vector2(920,665); save.pressed.connect(_save_game); add_child(save)
+	var pause := Button.new(); pause.text = "一時停止"; pause.position = Vector2(985,665); pause.pressed.connect(func(): speed = 0.0 if speed > 0.0 else 1.0); add_child(pause)
+	var speeds := OptionButton.new(); speeds.position = Vector2(1060,665)
 	for x in [1,2,4,8]: speeds.add_item("%sx" % x)
 	speeds.item_selected.connect(func(i): speed = pow(2.0,i)); add_child(speeds)
-	var debug_button := Button.new(); debug_button.text = "デバッグ"; debug_button.position = Vector2(1160,660); debug_button.pressed.connect(_toggle_debug); add_child(debug_button)
-	var diary_button := Button.new(); diary_button.text = "日記"; diary_button.position = Vector2(920,690); diary_button.pressed.connect(_show_diary); add_child(diary_button)
-	var settings_button := Button.new(); settings_button.text = "設定"; settings_button.position = Vector2(985,690); settings_button.pressed.connect(_show_settings); add_child(settings_button)
-	var reset_button := Button.new(); reset_button.text = "新しい生活"; reset_button.position = Vector2(1070,690); reset_button.pressed.connect(_confirm_reset); add_child(reset_button)
+	var debug_button := Button.new(); debug_button.text = "デバッグ"; debug_button.position = Vector2(1160,665); debug_button.pressed.connect(_toggle_debug); add_child(debug_button)
+	var diary_button := Button.new(); diary_button.text = "日記"; diary_button.position = Vector2(920,695); diary_button.pressed.connect(_show_diary); add_child(diary_button)
+	var settings_button := Button.new(); settings_button.text = "設定"; settings_button.position = Vector2(985,695); settings_button.pressed.connect(_show_settings); add_child(settings_button)
+	var reset_button := Button.new(); reset_button.text = "新しい生活"; reset_button.position = Vector2(1070,695); reset_button.pressed.connect(_confirm_reset); add_child(reset_button)
 	debug_panel = Panel.new(); debug_panel.position = Vector2(35,35); debug_panel.size = Vector2(835,610); debug_panel.visible = false; debug_panel.z_index = 20; add_child(debug_panel)
 	debug_label = Label.new(); debug_label.position = Vector2(14,14); debug_label.size = Vector2(805,575); debug_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; debug_label.add_theme_font_size_override("font_size",12); debug_panel.add_child(debug_label)
 
@@ -430,31 +432,33 @@ func _update_ui() -> void:
 	if not labels.has("time"): return
 	labels["time"].text = ObserverText.time_label(clock.text(),str(clock.snapshot().get("period","")))
 	labels["action"].text = "現在：%s（%s）" % [ObserverText.activity_label(activity_executor.activity_id if activity_executor.activity_id != "" else "wait"),ObserverText.status_label(status)]
-	labels["reason"].text = "公開された理由：" + (intention if intention!="" else reason)
+	labels["reason"].text = "公開された理由：" + ObserverText.public_reason(intention if intention!="" else reason)
 	labels["connection"].text = ObserverText.connection_label(llm_status) + "　" + ("自動保存" if save_status.to_lower().contains("auto-save") else "保存済み")
 	if progress_bar != null:
 		progress_bar.visible = activity_executor.is_active()
 		var definition:=ActivityCatalog.get_definition(activity_executor.activity_id)
 		progress_bar.max_value=float(definition.get("duration_minutes",1)); progress_bar.value=progress_bar.max_value-activity_executor.remaining_minutes
-	var text := "この人の状態\n"
+	var text := "今の状態\n"
 	for key in needs_model.values: text += "%s：%s\n" % [ObserverText.need_label(key),ObserverText.need_state(float(needs_model.values[key]))]
-	text += "\n部屋：%s　食料%d　水%d　ゴミ%d\n" % ["きれい" if room_state.cleanliness>=60 else "少し散らかっている",room_state.item_quantity("simple_food"),int(room_state.resources.get("water",0)),int(room_state.resources.get("trash",0))]
-	text += "\n目標\n" + ("まだない\n" if goal_store.active_texts().is_empty() else "\n".join(goal_store.active_texts()) + "\n")
-	text += "\nこの人の好み\n"
+	text += "\n部屋\n清潔さ：%s\n食料：%s\nゴミ：%s\n" % ["きれい" if room_state.cleanliness>=60 else "少し散らかっている",ObserverText.resource_quality(room_state.item_quantity("simple_food")),ObserverText.trash_quality(int(room_state.resources.get("trash",0)))]
 	var pref_summary := preferences.summary()
 	for key in pref_summary: text += "%s：%s\n" % [ObserverText.PREFS.get(key,key),"少し好む" if float(pref_summary[key])>0.15 else ("少し避ける" if float(pref_summary[key])<-0.15 else "まだわからない")]
 	var habit_lines:Array=[]
 	for habit in habit_store.summary(): habit_lines.append(ObserverText.habit_label(str(habit)))
-	text += "\nこの人らしさ\n" + ("まだわからない\n" if habit_lines.is_empty() else "\n".join(habit_lines)+"\n")
+	text += "\n目標：" + ("まだない\n" if goal_store.active_texts().is_empty() else "あり\n")
 	var skill_names:Array=[]
 	for skill in skill_store.skills.slice(0,min(5,skill_store.skills.size())): skill_names.append(ObserverText.skill_label(skill))
-	text += "\n身についたこと\n" + ("まだない\n" if skill_names.is_empty() else "\n".join(skill_names)+"\n")
-	text += "\n姿勢：%s\n持っているもの：%s" % ["横になっている" if resident_state.posture=="lying" else ("座っている" if resident_state.posture=="sitting" else "立っている"),ObserverText.object_label(resident_state.held_item_id) if resident_state.held_item_id!="" else "なし"]
+	text += "\n姿勢：%s" % ["横になっている" if resident_state.posture=="lying" else ("座っている" if resident_state.posture=="sitting" else "立っている")]
 	labels["panel"].text = text
-	var history_text := "RECENT\n"
+	var history_text := "最近の出来事\n"
 	for item in decision_history.slice(0,min(12,decision_history.size())):
-		history_text += "%s\n" % str(item.get("observer_text",item.get("text",item.get("action",""))))
-	labels["history"].text = history_text.replace("RECENT","最近の出来事")
+		history_text += "%s\n" % _observer_feed_text(str(item.get("event",item.get("action",""))),str(item.get("action","")),str(item.get("target","")),str(item.get("reason",item.get("text",""))))
+	if life_feed_label != null: life_feed_label.text=history_text.left(1050)
+	var personality:="この人らしさ\n"
+	for line in habit_lines.slice(0,3): personality += "・%s\n" % line
+	for line in skill_names.slice(0,2): personality += "・%s\n" % line
+	if habit_lines.is_empty() and skill_names.is_empty(): personality += "・暮らしの傾向を観察中"
+	if personality_label != null: personality_label.text=personality
 	if debug_panel != null and debug_panel.visible:
 		var debug_text := "STATUS: %s\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
 		debug_label.text = debug_text
@@ -463,20 +467,17 @@ func _draw() -> void:
 	var period:=str(clock.snapshot().get("period","day")); var base:=Color("#d8c3a5") if period!="night" else Color("#46516b")
 	draw_rect(Rect2(0,0,900,720),base)
 	draw_rect(Rect2(38,38,824,600),Color("#efe1c7") if period!="night" else Color("#303a55"))
+	draw_rect(Rect2(900,8,375,640),Color("#fbf6eb"),true)
+	draw_rect(Rect2(28,535,850,175),Color("#f4ead7"),true)
+	draw_rect(Rect2(880,535,395,175),Color("#f4ead7"),true)
 	for x in range(50,850,60): draw_line(Vector2(x,70),Vector2(x,620),Color(0.2,0.15,0.1,0.08),1)
 	for y in range(70,630,60): draw_line(Vector2(50,y),Vector2(850,y),Color(0.2,0.15,0.1,0.08),1)
 	for id in room_state.objects:
 		var object:Dictionary=room_state.objects[id]; var p:Vector2=object.position
 		if object.has("origin_cell"): p=RoomVisualAdapter.cell_to_position(object.origin_cell)
-		var region:=RoomVisualAdapter.atlas_region(str(id))
-		if furniture_atlas != null and region.size != Vector2.ZERO:
-			var visual_size:=Vector2(58,48)
-			if str(id) in ["bed","desk","bookshelf","tv","shower"]: visual_size=Vector2(82,62)
-			draw_texture_rect_region(furniture_atlas,Rect2(p-visual_size*0.5,visual_size),region)
-			continue
 		var furniture_color:=Color("#9b6b4f") if not bool(object.get("movable",false)) else Color("#c78f6b")
-		draw_rect(Rect2(p-Vector2(24,18),Vector2(48,36)),furniture_color)
-		draw_string(ThemeDB.fallback_font,p+Vector2(-22,5),ObserverText.object_label(str(id)),HORIZONTAL_ALIGNMENT_LEFT,48,11,Color("#fff8e7"))
+		draw_rect(Rect2(p-Vector2(30,22),Vector2(60,44)),furniture_color)
+		draw_rect(Rect2(p-Vector2(25,17),Vector2(50,5)),Color(1,0.9,0.7,0.25))
 	var render_position:=resident_state.render_position
 	var activity:=activity_executor.activity_id
 	var frame:=int(Time.get_ticks_msec()/350)%2
@@ -486,19 +487,14 @@ func _draw() -> void:
 		draw_texture_rect_region(resident_atlas,Rect2(render_position-Vector2(34,48)+ResidentVisualAdapter.offset_for(activity)+bob,Vector2(68,86)),resident_region)
 	else:
 		draw_circle(render_position,24,Color("#4fc3f7"))
-	var held_label:=ResidentVisualAdapter.held_prop(resident_state.held_item_id,activity)
-	if held_label!="": draw_string(ThemeDB.fallback_font,render_position+Vector2(30,-10),held_label,HORIZONTAL_ALIGNMENT_LEFT,-1,11,Color("#fff3c4"))
 	if status in ["acting","moving"]: draw_circle(render_position+Vector2(0,-54),5,Color("#fff176"))
-	var activity_icon:=_activity_icon()
-	if activity_icon!="": draw_string(ThemeDB.fallback_font,render_position+Vector2(-8,-48),activity_icon,HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color("#fff59d"))
-	draw_string(ThemeDB.fallback_font,render_position+Vector2(-30,-32),"住人",HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("#102027"))
 
 func _activity_text()->String:
 	if status=="moving":return "移動中"
 	if resident_state.posture=="lying":return "横になっている"
 	if resident_state.posture=="sitting":return "座っている"
 	if activity_executor.activity_id!="":return ObserverText.activity_label(activity_executor.activity_id)
-	if plan_executor.active:return "performing primitive"
+	if plan_executor.active:return "行動を準備中"
 	return "ぼんやりしている" if status=="idle" else status
 
 func _activity_icon()->String:
