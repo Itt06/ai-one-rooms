@@ -52,6 +52,7 @@ var plan_moving := false
 var plan_history := PlanHistory.new()
 var skill_store := SkillStore.new()
 var current_skill_id := ""
+var partner_visual := PartnerVisualState.new()
 var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"activity_types_requested":{},"activity_interruption_reasons":{},"activity_interruption_records":[],"primitive_only_plans":0,"plans_with_activity":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"critical_preflight_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"food_consumed":0,"groceries_ordered":0,"trash_generated":0,"trash_removed":0,"cleaning_activities":0,"sleep_completed":0,"drink_completed":0,"toilet_completed":0,"work_completed":0,"masturbation_completed":0,"partner_invitations":0,"partner_accepted":0,"partner_declined":0,"sex_completed":0,"desire_samples":0,"desire_sum":0.0,"desire_min":100.0,"desire_max":0.0,"last_drink_result":{},"last_successful_drink_time":"","tool_frequency":{}}
 var decision_revision := 0
 
@@ -61,6 +62,7 @@ func _ready() -> void:
 	resident_supplemental_atlas = load(ResidentVisualAdapter.SUPPLEMENTAL_PATH) as Texture2D
 	config_data = _config()
 	_load_game()
+	partner_visual.visit_finished.connect(_on_partner_visit_finished)
 	harness = ResidentHarness.new()
 	add_child(harness)
 	harness.decision_failed.connect(_on_decision_failed)
@@ -92,6 +94,8 @@ func _process(delta: float) -> void:
 		status=str(activity_update.get("state",status))
 		if bool(activity_update.get("completed",false)):_finish_activity()
 		else:_check_interrupt()
+	if partner_visual.phase!=PartnerVisualState.Phase.HIDDEN:
+		partner_visual.update(delta,activity_executor.activity_id,resident_state.render_position)
 	if plan_executor.active and plan_moving and speed > 0.0:
 		if resident_movement.update(resident_state,delta,move_speed):
 			plan_moving = false
@@ -184,6 +188,9 @@ func _run_plan_step()->void:
 		var started:=activity_executor.begin(tool,target,reason,room_state,needs_model,resident_state,_recent_activity_count(tool),float(preferences.values.get(tool,0.0)))
 		if not bool(started.get("ok",false)): diagnostics.activities_failed+=1; _abort_plan(str(started.get("error","activity_failed"))); return
 		diagnostics.activities_started+=1
+		if tool in ["meet_contact","sex"] and relationships.contacts.has(target):
+			partner_visual.begin_visit(relationships.contacts[target],tool,resident_state.render_position)
+			_record_history("partner_arrived",tool,target,"")
 		status=activity_executor.state_name(); return
 	var result:=PrimitiveToolExecutor.execute(step,room_state,resident_state,needs_model)
 	if not bool(result.get("ok",false)):_abort_plan(str(result.get("error","primitive_failed"))); return
@@ -213,6 +220,8 @@ func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->vo
 
 func _finish_activity()->void:
 	var id:=activity_executor.activity_id; var target:=activity_executor.target_id
+	if id in ["meet_contact","sex"]:
+		partner_visual.end_visit()
 	var relationship_outcome:=""
 	if id=="order_groceries" and not finance.spend(ResidentFinance.GROCERIES_COST,"groceries",clock.text()):diagnostics.activities_failed+=1;_abort_plan("cannot_afford_groceries");return
 	if id=="sex":
@@ -320,6 +329,9 @@ func _memory_salience(before: Dictionary, after: Dictionary) -> float:
 		largest = max(largest,abs(float(before.get(key,0.0)) - float(after.get(key,0.0))))
 	return clamp(0.35 + largest / 100.0,0.35,0.9)
 
+func _on_partner_visit_finished(contact_id: String) -> void:
+	_record_history("partner_left", "", contact_id, "")
+
 func _record_history(event: String, action: String, target: String, why: String) -> void:
 	decision_history.push_front({"time":clock.text(),"event":event,"action":action,"target":target,"reason":why,"text":_life_feed_text(event,action,target),"observer_text":_observer_feed_text(event,action,target,why)})
 	if decision_history.size() > 50: decision_history.resize(50)
@@ -335,6 +347,8 @@ func _observer_feed_text(event:String,action:String,target:String,why:String)->S
 	var time_text:=ObserverText.time_label(clock.text(),str(clock.snapshot().get("period",""))).replace("　朝","").replace("　昼","").replace("　夕方","").replace("　夜","")
 	if action.begins_with("plan_") or action=="": return "%s　次にすることを考えた" % time_text
 	if event in ["preference_transition","habit_transition","skill_learned"]: return "%s　暮らし方に小さな変化があった" % time_text
+	if event=="partner_arrived": return "%s　%sが部屋に来た" % [time_text,relationships.contacts.get(target,{}).get("display_name","相手")]
+	if event=="partner_left": return "%s　%sが帰った" % [time_text,relationships.contacts.get(target,{}).get("display_name","相手")]
 	if event=="activity_completed":
 		return "%s　%s" % [time_text,ObserverText.activity_completed_label(action)]
 	if event=="interrupted": return "%s　%sを途中でやめた" % [time_text,ObserverText.activity_noun(action)]
@@ -588,7 +602,7 @@ func _update_ui() -> void:
 	if habit_lines.is_empty() and skill_names.is_empty(): personality += "・暮らしの傾向を観察中"
 	if personality_label != null: personality_label.text=personality
 	if debug_panel != null and debug_panel.visible:
-		var debug_text := "STATUS: %s\nACTIVITY: %s  TARGET: %s  STATE: %s\nPOSTURE: %s  CELL: %s  HELD: %s\nCASH: %d  CLEANLINESS: %.0f  TISSUES: %d  STAINS: %d  TRASH: %d\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,activity_executor.activity_id,activity_executor.target_id,activity_executor.state_name(),resident_state.posture,str(resident_state.current_cell),resident_state.held_item_id,finance.cash,room_state.cleanliness,int(room_state.resources.get("tissues",0)),room_state.private_stains,int(room_state.resources.get("trash",0)),validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
+		var debug_text := "STATUS: %s\nACTIVITY: %s  TARGET: %s  STATE: %s\nPOSTURE: %s  CELL: %s  HELD: %s\nPARTNER VISUAL: %s  CONTACT: %s  TYPE: %s  POS: %s  TARGET: %s\nCASH: %d  CLEANLINESS: %.0f  TISSUES: %d  STAINS: %d  TRASH: %d\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,activity_executor.activity_id,activity_executor.target_id,activity_executor.state_name(),resident_state.posture,str(resident_state.current_cell),resident_state.held_item_id,partner_visual.phase_name(),partner_visual.contact_id,partner_visual.relation_type,str(partner_visual.position),str(partner_visual.target_position),finance.cash,room_state.cleanliness,int(room_state.resources.get("tissues",0)),room_state.private_stains,int(room_state.resources.get("trash",0)),validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
 		debug_label.text = debug_text
 
 func _relationship_quality(value:int)->String:
@@ -631,12 +645,18 @@ func _draw() -> void:
 		draw_circle(render_position,24,Color("#4fc3f7"))
 	if activity=="masturbate" and int(room_state.resources.get("tissues",0))>0:
 		draw_rect(Rect2(render_position+Vector2(24,-10),Vector2(10,8)),Color("#f7f4ea"),true)
-	if activity=="sex":
-		# Presentation-only partner silhouette; no state, needs, or decision logic.
-		var partner_position:=render_position+Vector2(42,0)
-		draw_circle(partner_position+Vector2(0,-28),10,Color("#c48b6b"))
-		draw_rect(Rect2(partner_position+Vector2(-10,-18),Vector2(20,28)),Color("#6f8791"),true)
-		draw_circle(render_position+Vector2(20,-62),4,Color("#f48fb1"))
+	if partner_visual.phase!=PartnerVisualState.Phase.HIDDEN:
+		var partner_tint:=Color("#c48b6b")
+		match partner_visual.visual_variant:
+			"warm": partner_tint=Color("#d39a78")
+			"light": partner_tint=Color("#b986a4")
+			"casual": partner_tint=Color("#8fa6b0")
+			"friend": partner_tint=Color("#7997a0")
+		var partner_motion:=sin(float(Time.get_ticks_msec())/180.0)*2.0 if partner_visual.phase==PartnerVisualState.Phase.INTIMATE else 0.0
+		draw_circle(partner_visual.position+Vector2(0,-28+partner_motion),10,partner_tint)
+		draw_rect(Rect2(partner_visual.position+Vector2(-10,-18+partner_motion),Vector2(20,28)),Color("#526d78"),true)
+		if partner_visual.phase==PartnerVisualState.Phase.INTIMATE:
+			draw_rect(Rect2(partner_visual.position+Vector2(-16,8),Vector2(38,20)),Color(0.82,0.84,0.88,0.9),true)
 	if status in ["acting","moving"]: draw_circle(render_position+Vector2(0,-54),5,Color("#fff176"))
 
 func _draw_furniture(id:String,p:Vector2)->void:
