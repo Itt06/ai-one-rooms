@@ -46,7 +46,10 @@ var recent_activity_history:Array=[]
 var activity_executor := ActivityExecutor.new()
 var harness: ResidentHarness
 var appraisal_harness:ResidentAppraisalHarness
+var experience_harness:ExperienceAppraisalHarness
 var resident_mind:=ResidentMindState.new()
+var last_experience:Dictionary={}
+var experience_pending_result:Dictionary={}
 var mind_dirty:=true
 var mind_dirty_reason:="initial"
 var mind_revision:=0
@@ -59,7 +62,7 @@ var plan_history := PlanHistory.new()
 var skill_store := SkillStore.new()
 var current_skill_id := ""
 var partner_visual := PartnerVisualState.new()
-var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"activity_types_requested":{},"activity_interruption_reasons":{},"activity_interruption_records":[],"primitive_only_plans":0,"plans_with_activity":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"critical_preflight_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"appraisal_requests":0,"appraisal_schema_failures":0,"appraisal_repairs":0,"appraisal_recovered":0,"appraisal_failures":0,"appraisal_latency_ms":0,"food_consumed":0,"groceries_ordered":0,"trash_generated":0,"trash_removed":0,"cleaning_activities":0,"sleep_completed":0,"drink_completed":0,"toilet_completed":0,"work_completed":0,"masturbation_completed":0,"partner_invitations":0,"partner_accepted":0,"partner_declined":0,"sex_completed":0,"desire_samples":0,"desire_sum":0.0,"desire_min":100.0,"desire_max":0.0,"last_drink_result":{},"last_successful_drink_time":"","tool_frequency":{}}
+var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"activity_types_requested":{},"activity_interruption_reasons":{},"activity_interruption_records":[],"primitive_only_plans":0,"plans_with_activity":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"critical_preflight_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"appraisal_requests":0,"appraisal_schema_failures":0,"appraisal_repairs":0,"appraisal_recovered":0,"appraisal_failures":0,"appraisal_latency_ms":0,"experience_appraisal_requests":0,"experience_appraisal_repairs":0,"experience_appraisal_recovered":0,"experience_appraisal_failures":0,"experience_appraisal_latency_ms":0,"food_consumed":0,"groceries_ordered":0,"trash_generated":0,"trash_removed":0,"cleaning_activities":0,"sleep_completed":0,"drink_completed":0,"toilet_completed":0,"work_completed":0,"masturbation_completed":0,"partner_invitations":0,"partner_accepted":0,"partner_declined":0,"sex_completed":0,"desire_samples":0,"desire_sum":0.0,"desire_min":100.0,"desire_max":0.0,"last_drink_result":{},"last_successful_drink_time":"","tool_frequency":{}}
 var decision_revision := 0
 
 func _ready() -> void:
@@ -75,6 +78,11 @@ func _ready() -> void:
 	appraisal_harness.appraisal_failed.connect(_on_appraisal_failed)
 	appraisal_harness.repair_attempted.connect(func():diagnostics.appraisal_repairs=int(diagnostics.get("appraisal_repairs",0))+1;diagnostics.appraisal_schema_failures=int(diagnostics.get("appraisal_schema_failures",0))+1)
 	appraisal_harness.repair_recovered.connect(func():diagnostics.appraisal_recovered=int(diagnostics.get("appraisal_recovered",0))+1)
+	experience_harness=ExperienceAppraisalHarness.new();add_child(experience_harness)
+	experience_harness.appraisal_ready.connect(_on_experience_ready)
+	experience_harness.appraisal_failed.connect(_on_experience_failed)
+	experience_harness.repair_attempted.connect(func():diagnostics.experience_appraisal_repairs=int(diagnostics.get("experience_appraisal_repairs",0))+1)
+	experience_harness.repair_recovered.connect(func():diagnostics.experience_appraisal_recovered=int(diagnostics.get("experience_appraisal_recovered",0))+1)
 	harness = ResidentHarness.new()
 	add_child(harness)
 	harness.decision_failed.connect(_on_decision_failed)
@@ -315,7 +323,24 @@ func _finish_activity()->void:
 	_mark_mind_dirty("activity_completed")
 	_record_history("activity_completed",id,target,reason)
 	DecisionLogger.append({"time":clock.text(),"action":id,"activity":id,"target":target,"reason":reason,"retrieved_memories":last_retrieved_memory_ids,"goals":goal_store.active_texts(),"latency_ms":last_latency_ms,"validation":"valid","result":"completed"})
-	_complete_plan_step(result)
+	if _is_experience_activity(id):_request_experience_appraisal(id,target,result,event)
+	else:_complete_plan_step(result)
+
+func _is_experience_activity(activity:String)->bool:
+	return activity in ["sleep","eat","drink","read","watch_tv","use_pc","clean","remote_work","meet_contact","sex","masturbate","message_contact","call_contact"]
+
+func _request_experience_appraisal(activity:String,target:String,result:Dictionary,event:Dictionary)->void:
+	experience_pending_result=result.duplicate(true)
+	var before_needs:=ResidentNeeds.new();before_needs.load_snapshot(event.get("before_needs",{}));var after_needs:=ResidentNeeds.new();after_needs.load_snapshot(event.get("after_needs",{}))
+	var facts:={"resident_mind_before":resident_mind.snapshot(),"activity":activity,"target":target,"objective_result":event.get("result",{}),"objective_changes":event.get("need_delta",{}),"body_before":BodyStateBuilder.descriptions(before_needs),"body_after":BodyStateBuilder.descriptions(after_needs),"relationship_result":event.get("context",{}).get("relationship_outcome",""),"financial_context":{"cash":finance.cash,"total_income":finance.total_income,"total_expenses":finance.total_expenses},"relevant_memory":memory_store.entries[0] if not memory_store.entries.is_empty() else {}}
+	status="thinking";diagnostics.experience_appraisal_requests=int(diagnostics.get("experience_appraisal_requests",0))+1
+	if not experience_harness.request_appraisal(_config(),FileAccess.get_file_as_string("res://ai/prompts/resident_experience_prompt.txt"),facts):_on_experience_failed("experience_request_could_not_start",0)
+
+func _on_experience_ready(appraisal:Dictionary,latency_ms:int)->void:
+	last_experience=appraisal.duplicate(true);memory_store.enrich_latest_experience(appraisal);diagnostics.experience_appraisal_latency_ms=latency_ms;_mark_mind_dirty("experience_completed");var completed:=experience_pending_result.duplicate(true);experience_pending_result={};status="acting";_complete_plan_step(completed)
+
+func _on_experience_failed(_error:String,latency_ms:int)->void:
+	diagnostics.experience_appraisal_failures=int(diagnostics.get("experience_appraisal_failures",0))+1;diagnostics.experience_appraisal_latency_ms=latency_ms;_mark_mind_dirty("experience_appraisal_unavailable");var completed:=experience_pending_result.duplicate(true);experience_pending_result={};status="acting";_complete_plan_step(completed)
 
 func _abort_plan(failure_reason:String)->void:
 	_mark_mind_dirty("activity_failed")
@@ -661,6 +686,7 @@ func _update_ui() -> void:
 	if personality_label != null: personality_label.text=personality
 	if debug_panel != null and debug_panel.visible:
 		var debug_text := "STATUS: %s\nACTIVITY: %s  TARGET: %s  STATE: %s\nPOSTURE: %s  CELL: %s  HELD: %s\nPARTNER VISUAL: %s  CONTACT: %s  TYPE: %s  POS: %s  TARGET: %s\nCASH: %d  CLEANLINESS: %.0f  TISSUES: %d  STAINS: %d  TRASH: %d\n\nRESIDENT MIND\nMood: %s\nWants: %s\nConcerns: %s\nAvoidances: %s\nIntentions: %s\nSocial attitude: %s\nEnergy attitude: %s\nLast appraisal minute: %.1f\nDirty: %s  Reason: %s\n\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,activity_executor.activity_id,activity_executor.target_id,activity_executor.state_name(),resident_state.posture,str(resident_state.current_cell),resident_state.held_item_id,partner_visual.phase_name(),partner_visual.contact_id,partner_visual.relation_type,str(partner_visual.position),str(partner_visual.target_position),finance.cash,room_state.cleanliness,int(room_state.resources.get("tissues",0)),room_state.private_stains,int(room_state.resources.get("trash",0)),resident_mind.mood,JSON.stringify(resident_mind.wants),JSON.stringify(resident_mind.concerns),JSON.stringify(resident_mind.avoidances),JSON.stringify(resident_mind.short_term_intentions),resident_mind.social_attitude,resident_mind.energy_attitude,resident_mind.updated_at_minutes,str(mind_dirty),mind_dirty_reason,validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
+		debug_text += "\n\nLAST EXPERIENCE\nActivity: %s\nFelt result: %s\nTone: %s\nSatisfaction: %s\nMeaning: %s\nFuture inclination: %s\nExperience appraisal requests: %d repairs: %d recovered: %d failures: %d latency: %d ms" % [str(last_experience.get("activity",activity_executor.activity_id)),str(last_experience.get("felt_result","")),str(last_experience.get("emotional_tone","")),str(last_experience.get("satisfaction","")),str(last_experience.get("meaning","")),str(last_experience.get("future_inclination","")),int(diagnostics.get("experience_appraisal_requests",0)),int(diagnostics.get("experience_appraisal_repairs",0)),int(diagnostics.get("experience_appraisal_recovered",0)),int(diagnostics.get("experience_appraisal_failures",0)),int(diagnostics.get("experience_appraisal_latency_ms",0))]
 		debug_label.text = debug_text
 
 func _relationship_quality(value:int)->String:
