@@ -55,6 +55,12 @@ func _test_v20_observer_data() -> void:
 	memory.add("Day 2","wait","I waited.","completed",0.9,["window"],{})
 	var ranked:=memory.retrieve([],[],1,"",["sleepiness"], ["bed","sleep"])
 	_check(str(ranked[0].get("related_action",""))=="sleep", "topic context should surface relevant sleep memory")
+	memory=MemoryStore.new(); memory.add("Day 1","read","Reading helped me relax.","completed",0.4,["bookshelf","book_01"],{"boredom":-20}); memory.add("Day 2","use_pc","I used the computer.","completed",0.9,["pc"],{})
+	ranked=memory.retrieve(["read","use_pc"],[],1,"",[],["bookshelf","book"])
+	_check(str(ranked[0].get("related_action",""))=="read", "held book and bookshelf topics should rank reading memory")
+	ranked=memory.retrieve(["read","use_pc"],[],1,"",[],[])
+	_check(str(ranked[0].get("related_action",""))=="use_pc", "without current topics, tool availability should only use related action scoring")
+	_check(ObserverContext.relevant_memory_note({"summary":"Reading helped me relax."}).begins_with("Relevant memory:"), "observer memory note must not claim causal decision use")
 	var observation:=ObservationBuilder.build(WorldClock.new(),ResidentNeeds.new(),RoomState.new(),Vector2.ZERO,"idle",[],[],{},[],{},{}); _check(not observation.has("available_actions") and observation.has("available_tools"), "obsolete available_actions contract should be absent")
 
 func _test_candidates_and_validation() -> void:

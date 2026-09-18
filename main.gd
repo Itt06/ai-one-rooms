@@ -100,11 +100,11 @@ func _request_decision() -> void:
 	for key in needs_model.values:
 		if float(needs_model.values.get(key,0.0)) >= 70.0:
 			strong_needs.append(str(key))
-	var memories := memory_store.retrieve(action_ids,goal_store.active_texts(),6,"",strong_needs,_memory_topics(action_ids,strong_needs))
+	var memories := memory_store.retrieve(action_ids,goal_store.active_texts(),6,"",strong_needs,_memory_topics(strong_needs))
 	last_retrieved_memory_ids = []
 	for memory in memories:
 		last_retrieved_memory_ids.append(str(memory.get("id","")))
-	var available_skills:=skill_store.relevant(room_state,resident_state.held_item_id,needs_model.values,resident_state,{"topics":_memory_topics(action_ids,strong_needs),"strong_needs":strong_needs,"recent_actions":recent_activity_history.slice(0,6)})
+	var available_skills:=skill_store.relevant(room_state,resident_state.held_item_id,needs_model.values,resident_state,{"topics":_memory_topics(strong_needs),"strong_needs":strong_needs,"recent_actions":recent_activity_history.slice(0,6)})
 	var observation := ObservationBuilder.build(clock,needs_model,room_state,resident_state.render_position,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,{"habits":habit_store.summary()},{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},available_skills,_recent_behavior())
 	last_observation = JSON.stringify(observation)
 	status = "thinking"
@@ -140,7 +140,7 @@ func _accept_plan(plan:Array, why:String, updates:Dictionary, skill_id:String)->
 	var public_reason:=why if why!="" else "I am deciding what to do."
 	if not last_retrieved_memory_ids.is_empty():
 		for memory in memory_store.entries:
-			if str(memory.get("id",""))==str(last_retrieved_memory_ids[0]): public_reason += " Remembered: %s" % str(memory.get("summary","")); break
+			if str(memory.get("id",""))==str(last_retrieved_memory_ids[0]): public_reason += " %s" % ObserverContext.relevant_memory_note(memory); break
 	reason=public_reason; plan_executor.begin(plan,reason); diagnostics.plans_started+=1; status="acting"; _record_history("plan_started",plan_executor.plan_id,"",reason); _run_plan_step()
 
 func _run_plan_step()->void:
@@ -304,14 +304,18 @@ func _observer_feed_text(event:String,action:String,target:String,why:String)->S
 	if event=="plan_started": return "%s — %s" % [clock.text(),why.left(120)]
 	return "%s — The resident is %s." % [clock.text(),action]
 
-func _memory_topics(action_ids:Array,strong_needs:Array)->Array:
+func _memory_topics(strong_needs:Array)->Array:
 	var topics:Array=[]
 	for id in room_state.objects:
-		if resident_state.current_cell in room_state.objects[id].get("interaction_cells",[]): topics.append(str(id))
+		if resident_state.current_cell in room_state.objects[id].get("interaction_cells",[]):
+			topics.append(str(id)); topics.append(str(room_state.objects[id].get("type",id)))
 	if resident_state.held_item_id!="": topics.append(resident_state.held_item_id)
 	for need in strong_needs: topics.append(str(need))
-	for id in action_ids: topics.append(str(id))
 	topics.append(str(clock.snapshot().get("period","")))
+	for goal in goal_store.active_texts():
+		for token in str(goal).to_lower().replace(","," ").split(" "):
+			if token.length()>=4: topics.append(token)
+	for recent in recent_activity_history.slice(0,2): topics.append(str(recent))
 	return topics.slice(0,min(10,topics.size()))
 
 func _recent_activity_count(activity:String)->int:
