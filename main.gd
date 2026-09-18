@@ -18,6 +18,7 @@ var labels := {}
 var last_retrieved_memory_ids: Array = []
 var debug_panel: Panel
 var debug_label: Label
+var debug_controls: VBoxContainer
 var furniture_atlas: Texture2D
 var resident_atlas: Texture2D
 var resident_supplemental_atlas: Texture2D
@@ -454,10 +455,62 @@ func _build_ui() -> void:
 	var settings_button := Button.new(); settings_button.text = "設定"; settings_button.position = Vector2(955,685); settings_button.pressed.connect(_show_settings); add_child(settings_button)
 	var reset_button := Button.new(); reset_button.text = "新しい生活"; reset_button.position = Vector2(1010,685); reset_button.pressed.connect(_confirm_reset); add_child(reset_button)
 	debug_panel = Panel.new(); debug_panel.position = Vector2(35,35); debug_panel.size = Vector2(835,610); debug_panel.visible = false; debug_panel.z_index = 20; add_child(debug_panel)
-	debug_label = Label.new(); debug_label.position = Vector2(14,14); debug_label.size = Vector2(805,575); debug_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; debug_label.add_theme_font_size_override("font_size",12); debug_panel.add_child(debug_label)
+	var scroll := ScrollContainer.new(); scroll.position = Vector2(10,10); scroll.size = Vector2(815,590); debug_panel.add_child(scroll)
+	debug_controls = VBoxContainer.new(); debug_controls.custom_minimum_size = Vector2(790,0); debug_controls.add_theme_constant_override("separation",6); scroll.add_child(debug_controls)
+	var title:=Label.new(); title.text="DEBUG / 開発者用状態操作"; title.add_theme_font_size_override("font_size",16); debug_controls.add_child(title)
+	debug_label = Label.new(); debug_label.custom_minimum_size=Vector2(780,70); debug_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; debug_label.add_theme_font_size_override("font_size",11); debug_controls.add_child(debug_label)
+	_add_debug_heading("Resident Needs")
+	for key in needs_model.values.keys(): _add_need_debug_row(str(key))
+	_add_debug_heading("Presets")
+	_add_debug_buttons([["全欲求 0",func():_debug_set_all_needs(0.0)],["全欲求 50",func():_debug_set_all_needs(50.0)],["全欲求 90",func():_debug_set_all_needs(90.0)],["通常状態に戻す",func():_debug_restore_needs()]])
+	_add_debug_buttons([["空腹MAX",func():_debug_set_need("hunger",95.0)],["喉MAX",func():_debug_set_need("thirst",95.0)],["トイレMAX",func():_debug_set_need("toilet_need",95.0)],["眠気MAX",func():_debug_set_need("sleepiness",95.0)],["孤独MAX",func():_debug_set_need("loneliness",95.0)],["ストレスMAX",func():_debug_set_need("stress",95.0)],["性欲MAX",func():_debug_set_need("sexual_desire",95.0)]])
+	_add_debug_buttons([["喉 critical",func():_debug_set_need("thirst",ActivityExecutor.CRITICAL_THIRST+1.0)],["トイレ critical",func():_debug_set_need("toilet_need",ActivityExecutor.CRITICAL_TOILET+1.0)],["眠気 critical",func():_debug_set_need("sleepiness",ActivityExecutor.CRITICAL_SLEEPINESS+1.0)],["不快感 critical",func():_debug_set_need("discomfort",ActivityExecutor.CRITICAL_DISCOMFORT+1.0)]])
+	_add_debug_heading("Life State")
+	_add_debug_buttons([["+ ¥1000",func():finance.cash+=1000],["- ¥1000",func():finance.cash=max(0,finance.cash-1000)],["ティッシュ +1",func():room_state.resources["tissues"]=min(20,int(room_state.resources.get("tissues",0))+1)],["ティッシュ 0",func():room_state.resources["tissues"]=0],["汚れ +1",func():room_state.private_stains=min(20,room_state.private_stains+1)],["汚れ 0",func():room_state.private_stains=0],["ゴミ 0",func():room_state.resources["trash"]=0]])
+	_add_debug_buttons([["恋人を利用可能",func():relationships.contacts.girlfriend_01.availability=true],["恋人を利用不可",func():relationships.contacts.girlfriend_01.availability=false],["親密条件を満たす",func():relationships.contacts.girlfriend_01.intimacy_interest=100;relationships.contacts.girlfriend_01.relationship=80],["親密条件を下げる",func():relationships.contacts.girlfriend_01.intimacy_interest=0;relationships.contacts.girlfriend_01.relationship=10]])
+	_add_debug_heading("Time")
+	_add_debug_buttons([["+10分",func():_debug_advance_time(10.0)],["+1時間",func():_debug_advance_time(60.0)],["+6時間",func():_debug_advance_time(360.0)],["+1日",func():_debug_advance_time(1440.0)]])
+	_add_debug_heading("Runtime / State")
 
 func _toggle_debug() -> void:
 	debug_panel.visible = not debug_panel.visible
+
+func _add_debug_heading(text:String)->void:
+	var label:=Label.new(); label.text="\n"+text; label.add_theme_font_size_override("font_size",14); debug_controls.add_child(label)
+
+func _add_debug_buttons(buttons:Array)->void:
+	var row:=HBoxContainer.new(); row.add_theme_constant_override("separation",5); debug_controls.add_child(row)
+	for entry in buttons:
+		var button:=Button.new(); button.text=str(entry[0]); button.pressed.connect(entry[1]); row.add_child(button)
+
+func _add_need_debug_row(key:String)->void:
+	var row:=HBoxContainer.new(); debug_controls.add_child(row)
+	var label:=Label.new(); label.text=ObserverText.need_label(key); label.custom_minimum_size=Vector2(90,0); row.add_child(label)
+	var slider:=HSlider.new(); slider.min_value=0.0; slider.max_value=100.0; slider.step=1.0; slider.custom_minimum_size=Vector2(560,0); slider.value=float(needs_model.values.get(key,0.0)); row.add_child(slider)
+	var value_label:=Label.new(); value_label.custom_minimum_size=Vector2(45,0); row.add_child(value_label)
+	var update_value:=func(value:float)->void:
+		var clamped:=clamp(value,0.0,100.0); needs_model.values[key]=clamped; value_label.text="%d" % int(clamped); _update_ui()
+	slider.value_changed.connect(update_value); update_value.call(slider.value)
+
+func _debug_set_need(key:String,value:float)->void:
+	if needs_model.values.has(key): needs_model.values[key]=clamp(value,0.0,100.0); _update_ui()
+
+func _debug_set_all_needs(value:float)->void:
+	for key in needs_model.values: needs_model.values[key]=clamp(value,0.0,100.0)
+	_update_ui()
+
+func _debug_restore_needs()->void:
+	var baseline={"hunger":28.0,"thirst":32.0,"sleepiness":20.0,"hygiene_need":22.0,"toilet_need":18.0,"boredom":38.0,"loneliness":18.0,"stress":12.0,"discomfort":8.0,"sexual_desire":20.0}
+	for key in baseline:
+		if needs_model.values.has(key): needs_model.values[key]=baseline[key]
+	_update_ui()
+
+func _debug_advance_time(minutes:float)->void:
+	if status=="thinking": return
+	clock.advance(minutes/2.0,1.0); needs_model.advance(minutes); room_state.advance(minutes); finance.advance(clock.total_minutes,clock.text())
+	if activity_executor.is_active():
+		var result:=activity_executor.update(minutes); status=str(result.get("state",status)); if bool(result.get("completed",false)):_finish_activity()
+	_update_ui()
 
 func _label(pos: Vector2, text: String, font_size: int) -> Label:
 	var label := Label.new(); label.position = pos; label.text = text; label.add_theme_font_size_override("font_size",font_size); label.add_theme_color_override("font_color",Color("#382f2a")); add_child(label); return label
@@ -506,7 +559,7 @@ func _update_ui() -> void:
 	if habit_lines.is_empty() and skill_names.is_empty(): personality += "・暮らしの傾向を観察中"
 	if personality_label != null: personality_label.text=personality
 	if debug_panel != null and debug_panel.visible:
-		var debug_text := "STATUS: %s\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
+		var debug_text := "STATUS: %s\nACTIVITY: %s  TARGET: %s  STATE: %s\nPOSTURE: %s  CELL: %s  HELD: %s\nCASH: %d  TISSUES: %d  STAINS: %d  TRASH: %d\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,activity_executor.activity_id,activity_executor.target_id,activity_executor.state_name(),resident_state.posture,str(resident_state.current_cell),resident_state.held_item_id,finance.cash,int(room_state.resources.get("tissues",0)),room_state.private_stains,int(room_state.resources.get("trash",0)),validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
 		debug_label.text = debug_text
 
 func _relationship_quality(value:int)->String:
