@@ -20,7 +20,10 @@ var debug_panel: Panel
 var debug_label: Label
 var furniture_atlas: Texture2D
 var resident_atlas: Texture2D
+var resident_supplemental_atlas: Texture2D
 var progress_bar: ProgressBar
+var life_feed_label: Label
+var personality_label: Label
 var config_data: Dictionary = DEFAULT_CONFIG.duplicate(true)
 var save_status := "Auto-save on"
 var llm_status := "Ornith: Offline"
@@ -50,6 +53,7 @@ var decision_revision := 0
 func _ready() -> void:
 	furniture_atlas = load(RoomVisualAdapter.ATLAS_PATH) as Texture2D
 	resident_atlas = load(ResidentVisualAdapter.ATLAS_PATH) as Texture2D
+	resident_supplemental_atlas = load(ResidentVisualAdapter.SUPPLEMENTAL_PATH) as Texture2D
 	config_data = _config()
 	_load_game()
 	harness = ResidentHarness.new()
@@ -61,7 +65,6 @@ func _ready() -> void:
 	harness.plan_ready.connect(_on_plan_ready)
 	harness.skill_ready.connect(_on_skill_ready)
 	resident_state.render_position = _cell_to_position(resident_state.current_cell)
-	_add_room_art()
 	_build_ui()
 	queue_redraw()
 	_request_decision()
@@ -188,6 +191,7 @@ func _begin_plan_move(object_id:String)->bool:
 
 func _begin_plan_move_cell(destination:Vector2i)->bool:
 	if not resident_movement.begin(room_state.grid,resident_state.current_cell,destination,room_state.blocked_cells()):return false
+	ResidentMovement.prepare_posture(resident_state)
 	resident_state.next_cell=destination; plan_moving=true; status="moving"; return true
 
 func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->void:
@@ -323,13 +327,14 @@ func _life_feed_text(event:String,action:String,target:String)->String:
 	return action
 
 func _observer_feed_text(event:String,action:String,target:String,why:String)->String:
-	if event in ["preference_transition","habit_transition","skill_learned"]: return "%s — %s" % [clock.text(),why]
+	var time_text:=ObserverText.time_label(clock.text(),str(clock.snapshot().get("period",""))).replace("　朝","").replace("　昼","").replace("　夕方","").replace("　夜","")
+	if action.begins_with("plan_") or action=="": return "%s　次にすることを考えた" % time_text
+	if event in ["preference_transition","habit_transition","skill_learned"]: return "%s　暮らし方に小さな変化があった" % time_text
 	if event=="activity_completed":
-		var label:=str(ActivityCatalog.get_definition(action).get("activity_label",action))
-		return "%s — Finished %s%s." % [clock.text(),label," near "+target if target!="" else ""]
-	if event=="interrupted": return "%s — Stopped %s." % [clock.text(),action]
-	if event=="plan_started": return "%s — %s" % [clock.text(),why.left(120)]
-	return "%s — The resident is %s." % [clock.text(),action]
+		return "%s　%s" % [time_text,ObserverText.activity_completed_label(action)]
+	if event=="interrupted": return "%s　%sを途中でやめた" % [time_text,ObserverText.activity_noun(action)]
+	if event=="plan_started": return "%s　%sを始めようとしている" % [time_text,ObserverText.activity_noun(action)]
+	return "%s　%s" % [time_text,ObserverText.activity_label(action)]
 
 func _memory_topics(strong_needs:Array)->Array:
 	var topics:Array=[]
@@ -428,21 +433,22 @@ func _add_room_art() -> void:
 
 func _build_ui() -> void:
 	labels["time"] = _label(Vector2(920,20),"",23)
-	labels["action"] = _label(Vector2(920,56),"",18)
-	labels["reason"] = _label(Vector2(920,88),"",14); labels["reason"].size = Vector2(345,62); labels["reason"].autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; labels["reason"].clip_text=true
-	labels["panel"] = _label(Vector2(920,155),"",13); labels["panel"].size = Vector2(345,345); labels["panel"].autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; labels["panel"].clip_text=true
-	labels["history"] = _label(Vector2(920,505),"",12); labels["history"].size = Vector2(345,125)
-	labels["connection"] = _label(Vector2(920,130),"",13)
-	progress_bar = ProgressBar.new(); progress_bar.position=Vector2(920,430); progress_bar.size=Vector2(345,22); progress_bar.visible=false; add_child(progress_bar)
-	var save := Button.new(); save.text = "保存"; save.position = Vector2(920,660); save.pressed.connect(_save_game); add_child(save)
-	var pause := Button.new(); pause.text = "一時停止"; pause.position = Vector2(985,660); pause.pressed.connect(func(): speed = 0.0 if speed > 0.0 else 1.0); add_child(pause)
-	var speeds := OptionButton.new(); speeds.position = Vector2(1060,660)
+	labels["action"] = _label(Vector2(920,58),"",18)
+	labels["reason"] = _label(Vector2(920,90),"",14); labels["reason"].size = Vector2(345,54); labels["reason"].autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	labels["connection"] = _label(Vector2(920,150),"",13)
+	labels["panel"] = _label(Vector2(920,180),"",12); labels["panel"].size = Vector2(345,285); labels["panel"].clip_text=true
+	progress_bar = ProgressBar.new(); progress_bar.position=Vector2(920,485); progress_bar.size=Vector2(345,18); progress_bar.visible=false; add_child(progress_bar)
+	life_feed_label=_label(Vector2(40,548),"",12); life_feed_label.size=Vector2(830,105); life_feed_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	personality_label=_label(Vector2(895,548),"",12); personality_label.size=Vector2(360,105); personality_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	var save := Button.new(); save.text = "保存"; save.position = Vector2(900,658); save.pressed.connect(_save_game); add_child(save)
+	var pause := Button.new(); pause.text = "一時停止"; pause.position = Vector2(955,658); pause.pressed.connect(func(): speed = 0.0 if speed > 0.0 else 1.0); add_child(pause)
+	var speeds := OptionButton.new(); speeds.position = Vector2(1035,658)
 	for x in [1,2,4,8]: speeds.add_item("%sx" % x)
 	speeds.item_selected.connect(func(i): speed = pow(2.0,i)); add_child(speeds)
-	var debug_button := Button.new(); debug_button.text = "デバッグ"; debug_button.position = Vector2(1160,660); debug_button.pressed.connect(_toggle_debug); add_child(debug_button)
-	var diary_button := Button.new(); diary_button.text = "日記"; diary_button.position = Vector2(920,690); diary_button.pressed.connect(_show_diary); add_child(diary_button)
-	var settings_button := Button.new(); settings_button.text = "設定"; settings_button.position = Vector2(985,690); settings_button.pressed.connect(_show_settings); add_child(settings_button)
-	var reset_button := Button.new(); reset_button.text = "新しい生活"; reset_button.position = Vector2(1070,690); reset_button.pressed.connect(_confirm_reset); add_child(reset_button)
+	var debug_button := Button.new(); debug_button.text = "デバッグ"; debug_button.position = Vector2(1140,658); debug_button.pressed.connect(_toggle_debug); add_child(debug_button)
+	var diary_button := Button.new(); diary_button.text = "日記"; diary_button.position = Vector2(900,690); diary_button.pressed.connect(_show_diary); add_child(diary_button)
+	var settings_button := Button.new(); settings_button.text = "設定"; settings_button.position = Vector2(955,690); settings_button.pressed.connect(_show_settings); add_child(settings_button)
+	var reset_button := Button.new(); reset_button.text = "新しい生活"; reset_button.position = Vector2(1010,690); reset_button.pressed.connect(_confirm_reset); add_child(reset_button)
 	debug_panel = Panel.new(); debug_panel.position = Vector2(35,35); debug_panel.size = Vector2(835,610); debug_panel.visible = false; debug_panel.z_index = 20; add_child(debug_panel)
 	debug_label = Label.new(); debug_label.position = Vector2(14,14); debug_label.size = Vector2(805,575); debug_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; debug_label.add_theme_font_size_override("font_size",12); debug_panel.add_child(debug_label)
 
@@ -450,39 +456,44 @@ func _toggle_debug() -> void:
 	debug_panel.visible = not debug_panel.visible
 
 func _label(pos: Vector2, text: String, font_size: int) -> Label:
-	var label := Label.new(); label.position = pos; label.text = text; label.add_theme_font_size_override("font_size",font_size); add_child(label); return label
+	var label := Label.new(); label.position = pos; label.text = text; label.add_theme_font_size_override("font_size",font_size); label.add_theme_color_override("font_color",Color("#382f2a")); add_child(label); return label
 
 func _update_ui() -> void:
 	if not labels.has("time"): return
 	labels["time"].text = ObserverText.time_label(clock.text(),str(clock.snapshot().get("period","")))
 	labels["action"].text = "現在：%s（%s）" % [ObserverText.activity_label(activity_executor.activity_id if activity_executor.activity_id != "" else "wait"),ObserverText.status_label(status)]
-	labels["reason"].text = "公開された理由：" + (intention if intention!="" else reason)
+	labels["reason"].text = "公開された理由：" + ObserverText.public_reason(intention if intention!="" else reason)
 	labels["connection"].text = ObserverText.connection_label(llm_status) + "　" + ("自動保存" if save_status.to_lower().contains("auto-save") else "保存済み")
 	if progress_bar != null:
 		progress_bar.visible = activity_executor.is_active()
 		var definition:=ActivityCatalog.get_definition(activity_executor.activity_id)
 		progress_bar.max_value=float(definition.get("duration_minutes",1)); progress_bar.value=progress_bar.max_value-activity_executor.remaining_minutes
-	var text := "この人の状態\n"
+	var text := "今の状態\n"
 	for key in needs_model.values: text += "%s：%s\n" % [ObserverText.need_label(key),ObserverText.need_state(float(needs_model.values[key]))]
-	text += "\n部屋：%s　食料%d　水%d　ゴミ%d\n" % ["きれい" if room_state.cleanliness>=60 else "少し散らかっている",room_state.item_quantity("simple_food"),int(room_state.resources.get("water",0)),int(room_state.resources.get("trash",0))]
-	text += "\n生活\n所持金：%d円　次の支払い：約%.1f時間後\n" % [finance.cash,max(0.0,finance.next_fixed_expense_time-clock.total_minutes)/60.0]
-	text += "人間関係：恋人 %s　友人 %s　元恋人 %s\n" % [_relationship_quality(int(relationships.contacts.girlfriend_01.relationship)),_relationship_quality(int(relationships.contacts.friend_01.relationship)),_relationship_quality(int(relationships.contacts.ex_01.relationship))]
-	text += "\n目標\n" + ("まだない\n" if goal_store.active_texts().is_empty() else "\n".join(goal_store.active_texts()) + "\n")
-	text += "\nこの人の好み\n"
+	text += "\n部屋\n清潔さ：%s\n食料：%s\nゴミ：%s\n" % ["きれい" if room_state.cleanliness>=60 else "少し散らかっている",ObserverText.resource_quality(room_state.item_quantity("simple_food")),ObserverText.trash_quality(int(room_state.resources.get("trash",0)))]
+	text += "\n生活\n所持金：%d円\n次の支払い：約%.1f時間後\n" % [finance.cash,max(0.0,finance.next_fixed_expense_time-clock.total_minutes)/60.0]
+	text += "人間関係\n恋人：%s\n友人：%s\n元恋人：%s\n" % [_relationship_quality(int(relationships.contacts.girlfriend_01.relationship)),_relationship_quality(int(relationships.contacts.friend_01.relationship)),_relationship_quality(int(relationships.contacts.ex_01.relationship))]
 	var pref_summary := preferences.summary()
-	for key in pref_summary: text += "%s：%s\n" % [ObserverText.PREFS.get(key,key),"少し好む" if float(pref_summary[key])>0.15 else ("少し避ける" if float(pref_summary[key])<-0.15 else "まだわからない")]
 	var habit_lines:Array=[]
 	for habit in habit_store.summary(): habit_lines.append(ObserverText.habit_label(str(habit)))
-	text += "\nこの人らしさ\n" + ("まだわからない\n" if habit_lines.is_empty() else "\n".join(habit_lines)+"\n")
 	var skill_names:Array=[]
 	for skill in skill_store.skills.slice(0,min(5,skill_store.skills.size())): skill_names.append(ObserverText.skill_label(skill))
-	text += "\n身についたこと\n" + ("まだない\n" if skill_names.is_empty() else "\n".join(skill_names)+"\n")
-	text += "\n姿勢：%s\n持っているもの：%s" % ["横になっている" if resident_state.posture=="lying" else ("座っている" if resident_state.posture=="sitting" else "立っている"),ObserverText.object_label(resident_state.held_item_id) if resident_state.held_item_id!="" else "なし"]
 	labels["panel"].text = text
-	var history_text := "RECENT\n"
-	for item in decision_history.slice(0,min(12,decision_history.size())):
-		history_text += "%s\n" % str(item.get("observer_text",item.get("text",item.get("action",""))))
-	labels["history"].text = history_text.replace("RECENT","最近の出来事")
+	var history_text := "最近の出来事\n"
+	for item in decision_history.slice(0,min(5,decision_history.size())):
+		history_text += "%s\n" % _observer_feed_text(str(item.get("event",item.get("action",""))),str(item.get("action","")),str(item.get("target","")),str(item.get("reason",item.get("text",""))))
+	if life_feed_label != null: life_feed_label.text=history_text.left(1050)
+	var personality:="この人らしさ\n"
+	var shown_preferences:=0
+	for key in pref_summary:
+		if abs(float(pref_summary[key]))<0.15: continue
+		personality += "・%sを%s\n" % [ObserverText.PREFS.get(key,"ある行動"),"少し好む" if float(pref_summary[key])>0.0 else "少し避ける"]
+		shown_preferences+=1
+		if shown_preferences>=2: break
+	for line in habit_lines.slice(0,2): personality += "・%s\n" % line
+	for line in skill_names.slice(0,1): personality += "・%s\n" % line
+	if habit_lines.is_empty() and skill_names.is_empty(): personality += "・暮らしの傾向を観察中"
+	if personality_label != null: personality_label.text=personality
 	if debug_panel != null and debug_panel.visible:
 		var debug_text := "STATUS: %s\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
 		debug_label.text = debug_text
@@ -494,44 +505,73 @@ func _relationship_quality(value:int)->String:
 
 func _draw() -> void:
 	var period:=str(clock.snapshot().get("period","day")); var base:=Color("#d8c3a5") if period!="night" else Color("#46516b")
-	draw_rect(Rect2(0,0,900,720),base)
-	draw_rect(Rect2(38,38,824,600),Color("#efe1c7") if period!="night" else Color("#303a55"))
-	for x in range(50,850,60): draw_line(Vector2(x,70),Vector2(x,620),Color(0.2,0.15,0.1,0.08),1)
-	for y in range(70,630,60): draw_line(Vector2(50,y),Vector2(850,y),Color(0.2,0.15,0.1,0.08),1)
+	draw_rect(Rect2(0,0,900,530),base)
+	draw_rect(Rect2(32,28,836,484),Color("#efe1c7") if period!="night" else Color("#303a55"))
+	draw_rect(Rect2(900,8,375,512),Color("#fbf6eb"),true)
+	draw_rect(Rect2(28,530,850,132),Color("#f4ead7"),true)
+	draw_rect(Rect2(880,530,395,132),Color("#f4ead7"),true)
+	draw_line(Vector2(900,8),Vector2(900,720),Color("#8c7968"),2)
+	for x in range(50,850,52): draw_line(Vector2(x,48),Vector2(x,505),Color(0.2,0.15,0.1,0.06),1)
+	for y in range(48,506,52): draw_line(Vector2(50,y),Vector2(850,y),Color(0.2,0.15,0.1,0.06),1)
 	for id in room_state.objects:
 		var object:Dictionary=room_state.objects[id]; var p:Vector2=object.position
 		if object.has("origin_cell"): p=RoomVisualAdapter.cell_to_position(object.origin_cell)
-		var region:=RoomVisualAdapter.atlas_region(str(id))
-		if furniture_atlas != null and region.size != Vector2.ZERO:
-			var visual_size:=Vector2(58,48)
-			if str(id) in ["bed","desk","bookshelf","tv","shower"]: visual_size=Vector2(82,62)
-			draw_texture_rect_region(furniture_atlas,Rect2(p-visual_size*0.5,visual_size),region)
-			continue
-		var furniture_color:=Color("#9b6b4f") if not bool(object.get("movable",false)) else Color("#c78f6b")
-		draw_rect(Rect2(p-Vector2(24,18),Vector2(48,36)),furniture_color)
-		draw_string(ThemeDB.fallback_font,p+Vector2(-22,5),ObserverText.object_label(str(id)),HORIZONTAL_ALIGNMENT_LEFT,48,11,Color("#fff8e7"))
+		_draw_furniture(str(id),p)
 	var render_position:=resident_state.render_position
 	var activity:=activity_executor.activity_id
 	var frame:=int(Time.get_ticks_msec()/350)%2
 	var resident_region:=ResidentVisualAdapter.region_for(activity,status,resident_state.posture,frame)
-	if resident_atlas != null:
+	var active_resident_texture:=resident_supplemental_atlas if ResidentVisualAdapter.uses_supplemental(activity) else resident_atlas
+	if ResidentVisualAdapter.uses_supplemental(activity): resident_region=ResidentVisualAdapter.supplemental_region(activity)
+	if active_resident_texture != null:
 		var bob:=Vector2(0,sin(float(Time.get_ticks_msec())/450.0)*1.5) if activity=="" and status=="idle" else Vector2.ZERO
-		draw_texture_rect_region(resident_atlas,Rect2(render_position-Vector2(34,48)+ResidentVisualAdapter.offset_for(activity)+bob,Vector2(68,86)),resident_region)
+		draw_texture_rect_region(active_resident_texture,Rect2(render_position-Vector2(34,48)+ResidentVisualAdapter.offset_for(activity)+bob,Vector2(68,86)),resident_region)
 	else:
 		draw_circle(render_position,24,Color("#4fc3f7"))
-	var held_label:=ResidentVisualAdapter.held_prop(resident_state.held_item_id,activity)
-	if held_label!="": draw_string(ThemeDB.fallback_font,render_position+Vector2(30,-10),held_label,HORIZONTAL_ALIGNMENT_LEFT,-1,11,Color("#fff3c4"))
 	if status in ["acting","moving"]: draw_circle(render_position+Vector2(0,-54),5,Color("#fff176"))
-	var activity_icon:=_activity_icon()
-	if activity_icon!="": draw_string(ThemeDB.fallback_font,render_position+Vector2(-8,-48),activity_icon,HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color("#fff59d"))
-	draw_string(ThemeDB.fallback_font,render_position+Vector2(-30,-32),"住人",HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("#102027"))
+
+func _draw_furniture(id:String,p:Vector2)->void:
+	var wood:=Color("#8b5e45"); var light:=Color("#d7b98e"); var metal:=Color("#a9b0ad"); var dark:=Color("#374247")
+	match id:
+		"bed":
+			draw_rect(Rect2(p-Vector2(44,22),Vector2(88,44)),wood); draw_rect(Rect2(p-Vector2(38,17),Vector2(76,31)),Color("#9fb0a2")); draw_rect(Rect2(p-Vector2(34,15),Vector2(24,12)),Color("#eee7d8"))
+		"desk":
+			draw_rect(Rect2(p-Vector2(42,18),Vector2(84,12)),wood); draw_line(p+Vector2(-34,-6),p+Vector2(-34,24),wood,6); draw_line(p+Vector2(34,-6),p+Vector2(34,24),wood,6)
+		"chair":
+			draw_rect(Rect2(p-Vector2(18,8),Vector2(36,20)),light); draw_rect(Rect2(p-Vector2(18,27),Vector2(36,19)),light); draw_line(p+Vector2(-14,12),p+Vector2(-14,27),wood,4); draw_line(p+Vector2(14,12),p+Vector2(14,27),wood,4)
+		"bookshelf":
+			draw_rect(Rect2(p-Vector2(28,34),Vector2(56,68)),wood); for y in [-15,5,25]: draw_line(p+Vector2(-23,y),p+Vector2(23,y),light,3)
+		"fridge":
+			draw_rect(Rect2(p-Vector2(25,35),Vector2(50,70)),Color("#d9d8cf")); draw_line(p+Vector2(-25,0),p+Vector2(25,0),metal,2); draw_line(p+Vector2(15,-25),p+Vector2(15,-8),dark,3)
+		"sink":
+			draw_rect(Rect2(p-Vector2(32,18),Vector2(64,42)),Color("#c7b9a5")); draw_rect(Rect2(p-Vector2(22,13),Vector2(44,15)),metal); draw_arc(p+Vector2(0,-12),10,PI,TAU,12,dark,3)
+		"pc":
+			draw_rect(Rect2(p-Vector2(27,25),Vector2(54,35)),dark); draw_rect(Rect2(p-Vector2(22,20),Vector2(44,25)),Color("#476a73")); draw_line(p+Vector2(0,10),p+Vector2(0,22),dark,4)
+		"tv":
+			draw_rect(Rect2(p-Vector2(38,27),Vector2(76,48)),dark); draw_rect(Rect2(p-Vector2(32,21),Vector2(64,36)),Color("#607d8b")); draw_line(p+Vector2(-12,23),p+Vector2(12,23),dark,5)
+		"window":
+			draw_rect(Rect2(p-Vector2(38,30),Vector2(76,60)),Color("#8eb7c7")); draw_line(p+Vector2(0,-30),p+Vector2(0,30),Color.WHITE,3); draw_line(p+Vector2(-38,0),p+Vector2(38,0),Color.WHITE,3)
+		"trash_bin":
+			draw_colored_polygon(PackedVector2Array([p+Vector2(-20,-18),p+Vector2(20,-18),p+Vector2(15,24),p+Vector2(-15,24)]),Color("#777a72")); draw_line(p+Vector2(-22,-20),p+Vector2(22,-20),dark,4)
+		"shower":
+			draw_rect(Rect2(p-Vector2(29,38),Vector2(58,76)),Color(0.65,0.82,0.86,0.45)); draw_line(p+Vector2(-29,-38),p+Vector2(-29,38),metal,3); draw_line(p+Vector2(29,-38),p+Vector2(29,38),metal,3); draw_arc(p+Vector2(12,-19),12,PI,TAU,12,dark,3)
+		"toilet":
+			draw_rect(Rect2(p-Vector2(18,30),Vector2(36,27)),Color("#e6e2d7")); draw_ellipse_fallback(p+Vector2(0,10),Vector2(27,18),Color("#eeeae0"))
+		_:
+			draw_rect(Rect2(p-Vector2(24,18),Vector2(48,36)),wood)
+
+func draw_ellipse_fallback(center:Vector2,radius:Vector2,color:Color)->void:
+	var points:=PackedVector2Array()
+	for i in 24:
+		var angle:=TAU*float(i)/24.0; points.append(center+Vector2(cos(angle)*radius.x,sin(angle)*radius.y))
+	draw_colored_polygon(points,color)
 
 func _activity_text()->String:
 	if status=="moving":return "移動中"
 	if resident_state.posture=="lying":return "横になっている"
 	if resident_state.posture=="sitting":return "座っている"
 	if activity_executor.activity_id!="":return ObserverText.activity_label(activity_executor.activity_id)
-	if plan_executor.active:return "performing primitive"
+	if plan_executor.active:return "行動を準備中"
 	return "ぼんやりしている" if status=="idle" else status
 
 func _activity_icon()->String:
