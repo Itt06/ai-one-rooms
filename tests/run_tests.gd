@@ -22,6 +22,7 @@ func _initialize() -> void:
 	_test_habit_periods()
 	_test_v20_observer_data()
 	_test_v21_presentation_contract()
+	_test_resident_visual_mapping()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -73,6 +74,15 @@ func _test_v21_presentation_contract() -> void:
 	_check(ObserverText.time_label("Day 3 21:40","night").contains("3日"), "diary time should be Japanese")
 	_check(not ObserverText.habit_label("often read in the evening").contains("often"), "habit presentation must hide raw English")
 	_check(ObserverText.skill_label({"steps":[{"tool":"move_near"},{"tool":"pick_up"},{"tool":"read"}]}) == "本棚から本を取って読む", "skill presentation should be human-readable")
+
+func _test_resident_visual_mapping() -> void:
+	_check(ResidentVisualAdapter.region_for("","idle","standing",0).position == Vector2.ZERO, "idle should use idle sprite")
+	_check(ResidentVisualAdapter.region_for("","moving","standing",0).position == Vector2(768,384), "moving should use walk sprite")
+	_check(ResidentVisualAdapter.region_for("sleep","acting","lying",0).position == Vector2(384,768), "sleep should use sleep sprite")
+	_check(ResidentVisualAdapter.region_for("read","acting","sitting",0).position == Vector2(768,768), "read should use read sprite")
+	_check(ResidentVisualAdapter.region_for("use_pc","acting","sitting",0).position == Vector2(1152,768), "pc should use pc sprite")
+	_check(ResidentVisualAdapter.held_prop("book_01","read") == "本", "book prop should be visible")
+	_check(ResidentVisualAdapter.region_for("unknown","idle","standing",0).position == Vector2.ZERO, "unknown activity should safely use idle")
 
 func _test_candidates_and_validation() -> void:
 	var room := RoomState.new()

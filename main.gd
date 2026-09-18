@@ -19,6 +19,7 @@ var last_retrieved_memory_ids: Array = []
 var debug_panel: Panel
 var debug_label: Label
 var furniture_atlas: Texture2D
+var resident_atlas: Texture2D
 var progress_bar: ProgressBar
 var config_data: Dictionary = DEFAULT_CONFIG.duplicate(true)
 var save_status := "Auto-save on"
@@ -46,6 +47,7 @@ var decision_revision := 0
 
 func _ready() -> void:
 	furniture_atlas = load(RoomVisualAdapter.ATLAS_PATH) as Texture2D
+	resident_atlas = load(ResidentVisualAdapter.ATLAS_PATH) as Texture2D
 	config_data = _config()
 	_load_game()
 	harness = ResidentHarness.new()
@@ -475,17 +477,18 @@ func _draw() -> void:
 		var furniture_color:=Color("#9b6b4f") if not bool(object.get("movable",false)) else Color("#c78f6b")
 		draw_rect(Rect2(p-Vector2(24,18),Vector2(48,36)),furniture_color)
 		draw_string(ThemeDB.fallback_font,p+Vector2(-22,5),ObserverText.object_label(str(id)),HORIZONTAL_ALIGNMENT_LEFT,48,11,Color("#fff8e7"))
-	var resident_color := Color("#90caf9") if status == "thinking" else Color("#4fc3f7")
-	if activity_executor.activity_id=="sleep": resident_color=Color("#7986cb")
-	elif activity_executor.activity_id in ["read","write_diary"]: resident_color=Color("#81c784")
-	elif activity_executor.activity_id in ["eat","drink"]: resident_color=Color("#ffb74d")
-	elif activity_executor.activity_id in ["take_shower","use_toilet","clean"]: resident_color=Color("#4dd0e1")
 	var render_position:=resident_state.render_position
-	if resident_state.posture=="lying": draw_rect(Rect2(render_position-Vector2(30,12),Vector2(60,24)),resident_color)
-	else: draw_circle(render_position,24,resident_color)
-	if resident_state.held_item_id!="": draw_circle(render_position+Vector2(30,0),7,Color("#ffcc80")); draw_string(ThemeDB.fallback_font,render_position+Vector2(38,5),resident_state.held_item_id,HORIZONTAL_ALIGNMENT_LEFT,-1,11,Color.WHITE)
-	if resident_state.posture=="sitting": draw_line(render_position+Vector2(-15,20),render_position+Vector2(15,20),Color("#37474f"),5)
-	if status in ["acting","moving"]: draw_circle(render_position+Vector2(0,-34),6,Color("#fff176"))
+	var activity:=activity_executor.activity_id
+	var frame:=int(Time.get_ticks_msec()/350)%2
+	var resident_region:=ResidentVisualAdapter.region_for(activity,status,resident_state.posture,frame)
+	if resident_atlas != null:
+		var bob:=Vector2(0,sin(float(Time.get_ticks_msec())/450.0)*1.5) if activity=="" and status=="idle" else Vector2.ZERO
+		draw_texture_rect_region(resident_atlas,Rect2(render_position-Vector2(34,48)+ResidentVisualAdapter.offset_for(activity)+bob,Vector2(68,86)),resident_region)
+	else:
+		draw_circle(render_position,24,Color("#4fc3f7"))
+	var held_label:=ResidentVisualAdapter.held_prop(resident_state.held_item_id,activity)
+	if held_label!="": draw_string(ThemeDB.fallback_font,render_position+Vector2(30,-10),held_label,HORIZONTAL_ALIGNMENT_LEFT,-1,11,Color("#fff3c4"))
+	if status in ["acting","moving"]: draw_circle(render_position+Vector2(0,-54),5,Color("#fff176"))
 	var activity_icon:=_activity_icon()
 	if activity_icon!="": draw_string(ThemeDB.fallback_font,render_position+Vector2(-8,-48),activity_icon,HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color("#fff59d"))
 	draw_string(ThemeDB.fallback_font,render_position+Vector2(-30,-32),"住人",HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("#102027"))
