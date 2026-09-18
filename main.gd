@@ -20,6 +20,7 @@ var debug_panel: Panel
 var debug_label: Label
 var furniture_atlas: Texture2D
 var resident_atlas: Texture2D
+var resident_supplemental_atlas: Texture2D
 var progress_bar: ProgressBar
 var life_feed_label: Label
 var personality_label: Label
@@ -50,6 +51,7 @@ var decision_revision := 0
 func _ready() -> void:
 	furniture_atlas = load(RoomVisualAdapter.ATLAS_PATH) as Texture2D
 	resident_atlas = load(ResidentVisualAdapter.ATLAS_PATH) as Texture2D
+	resident_supplemental_atlas = load(ResidentVisualAdapter.SUPPLEMENTAL_PATH) as Texture2D
 	config_data = _config()
 	_load_game()
 	harness = ResidentHarness.new()
@@ -179,6 +181,7 @@ func _begin_plan_move(object_id:String)->bool:
 
 func _begin_plan_move_cell(destination:Vector2i)->bool:
 	if not resident_movement.begin(room_state.grid,resident_state.current_cell,destination,room_state.blocked_cells()):return false
+	ResidentMovement.prepare_posture(resident_state)
 	resident_state.next_cell=destination; plan_moving=true; status="moving"; return true
 
 func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->void:
@@ -485,9 +488,11 @@ func _draw() -> void:
 	var activity:=activity_executor.activity_id
 	var frame:=int(Time.get_ticks_msec()/350)%2
 	var resident_region:=ResidentVisualAdapter.region_for(activity,status,resident_state.posture,frame)
-	if resident_atlas != null:
+	var active_resident_texture:=resident_supplemental_atlas if ResidentVisualAdapter.uses_supplemental(activity) else resident_atlas
+	if ResidentVisualAdapter.uses_supplemental(activity): resident_region=ResidentVisualAdapter.supplemental_region(activity)
+	if active_resident_texture != null:
 		var bob:=Vector2(0,sin(float(Time.get_ticks_msec())/450.0)*1.5) if activity=="" and status=="idle" else Vector2.ZERO
-		draw_texture_rect_region(resident_atlas,Rect2(render_position-Vector2(34,48)+ResidentVisualAdapter.offset_for(activity)+bob,Vector2(68,86)),resident_region)
+		draw_texture_rect_region(active_resident_texture,Rect2(render_position-Vector2(34,48)+ResidentVisualAdapter.offset_for(activity)+bob,Vector2(68,86)),resident_region)
 	else:
 		draw_circle(render_position,24,Color("#4fc3f7"))
 	if status in ["acting","moving"]: draw_circle(render_position+Vector2(0,-54),5,Color("#fff176"))
