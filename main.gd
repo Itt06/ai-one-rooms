@@ -19,6 +19,10 @@ var last_retrieved_memory_ids: Array = []
 var debug_panel: Panel
 var debug_label: Label
 var debug_controls: VBoxContainer
+var debug_need_sliders: Dictionary = {}
+var debug_need_value_labels: Dictionary = {}
+var debug_cleanliness_slider: HSlider
+var debug_cleanliness_value_label: Label
 var furniture_atlas: Texture2D
 var resident_atlas: Texture2D
 var resident_supplemental_atlas: Texture2D
@@ -466,6 +470,7 @@ func _build_ui() -> void:
 	_add_debug_buttons([["空腹MAX",func():_debug_set_need("hunger",95.0)],["喉MAX",func():_debug_set_need("thirst",95.0)],["トイレMAX",func():_debug_set_need("toilet_need",95.0)],["眠気MAX",func():_debug_set_need("sleepiness",95.0)],["孤独MAX",func():_debug_set_need("loneliness",95.0)],["ストレスMAX",func():_debug_set_need("stress",95.0)],["性欲MAX",func():_debug_set_need("sexual_desire",95.0)]])
 	_add_debug_buttons([["喉 critical",func():_debug_set_need("thirst",ActivityExecutor.CRITICAL_THIRST+1.0)],["トイレ critical",func():_debug_set_need("toilet_need",ActivityExecutor.CRITICAL_TOILET+1.0)],["眠気 critical",func():_debug_set_need("sleepiness",ActivityExecutor.CRITICAL_SLEEPINESS+1.0)],["不快感 critical",func():_debug_set_need("discomfort",ActivityExecutor.CRITICAL_DISCOMFORT+1.0)]])
 	_add_debug_heading("Life State")
+	_add_cleanliness_debug_row()
 	_add_debug_buttons([["+ ¥1000",func():finance.cash+=1000],["- ¥1000",func():finance.cash=max(0,finance.cash-1000)],["ティッシュ +1",func():room_state.resources["tissues"]=min(20,int(room_state.resources.get("tissues",0))+1)],["ティッシュ 0",func():room_state.resources["tissues"]=0],["汚れ +1",func():room_state.private_stains=min(20,room_state.private_stains+1)],["汚れ 0",func():room_state.private_stains=0],["ゴミ 0",func():room_state.resources["trash"]=0]])
 	_add_debug_buttons([["恋人を利用可能",func():relationships.contacts.girlfriend_01.availability=true],["恋人を利用不可",func():relationships.contacts.girlfriend_01.availability=false],["親密条件を満たす",func():relationships.contacts.girlfriend_01.intimacy_interest=100;relationships.contacts.girlfriend_01.relationship=80],["親密条件を下げる",func():relationships.contacts.girlfriend_01.intimacy_interest=0;relationships.contacts.girlfriend_01.relationship=10]])
 	_add_debug_heading("Time")
@@ -488,22 +493,45 @@ func _add_need_debug_row(key:String)->void:
 	var label:=Label.new(); label.text=ObserverText.need_label(key); label.custom_minimum_size=Vector2(90,0); row.add_child(label)
 	var slider:=HSlider.new(); slider.min_value=0.0; slider.max_value=100.0; slider.step=1.0; slider.custom_minimum_size=Vector2(560,0); slider.value=float(needs_model.values.get(key,0.0)); row.add_child(slider)
 	var value_label:=Label.new(); value_label.custom_minimum_size=Vector2(45,0); row.add_child(value_label)
+	debug_need_sliders[key]=slider; debug_need_value_labels[key]=value_label
 	var update_value:=func(value:float)->void:
 		var clamped:=clamp(value,0.0,100.0); needs_model.values[key]=clamped; value_label.text="%d" % int(clamped); _update_ui()
 	slider.value_changed.connect(update_value); update_value.call(slider.value)
 
+func _add_cleanliness_debug_row()->void:
+	var row:=HBoxContainer.new(); debug_controls.add_child(row)
+	var label:=Label.new(); label.text="清潔さ"; label.custom_minimum_size=Vector2(90,0); row.add_child(label)
+	debug_cleanliness_slider=HSlider.new(); debug_cleanliness_slider.min_value=0.0; debug_cleanliness_slider.max_value=100.0; debug_cleanliness_slider.step=1.0; debug_cleanliness_slider.custom_minimum_size=Vector2(560,0); row.add_child(debug_cleanliness_slider)
+	debug_cleanliness_value_label=Label.new(); debug_cleanliness_value_label.custom_minimum_size=Vector2(45,0); row.add_child(debug_cleanliness_value_label)
+	debug_cleanliness_slider.value_changed.connect(func(value:float): room_state.cleanliness=clamp(value,0.0,100.0); debug_cleanliness_value_label.text="%d" % int(room_state.cleanliness); _update_ui())
+	_debug_sync_controls()
+	_add_debug_buttons([["清潔さ 0",func():_debug_set_cleanliness(0.0)],["清潔さ 50",func():_debug_set_cleanliness(50.0)],["清潔さ 100",func():_debug_set_cleanliness(100.0)]])
+
+func _debug_sync_controls()->void:
+	for key in debug_need_sliders:
+		var value:=clamp(float(needs_model.values.get(key,0.0)),0.0,100.0)
+		debug_need_sliders[key].set_value_no_signal(value)
+		debug_need_value_labels[key].text="%d" % int(value)
+	if debug_cleanliness_slider!=null:
+		var cleanliness:=clamp(float(room_state.cleanliness),0.0,100.0)
+		debug_cleanliness_slider.set_value_no_signal(cleanliness)
+		debug_cleanliness_value_label.text="%d" % int(cleanliness)
+
 func _debug_set_need(key:String,value:float)->void:
-	if needs_model.values.has(key): needs_model.values[key]=clamp(value,0.0,100.0); _update_ui()
+	if needs_model.values.has(key): needs_model.values[key]=clamp(value,0.0,100.0); _debug_sync_controls(); _update_ui()
 
 func _debug_set_all_needs(value:float)->void:
 	for key in needs_model.values: needs_model.values[key]=clamp(value,0.0,100.0)
-	_update_ui()
+	_debug_sync_controls(); _update_ui()
 
 func _debug_restore_needs()->void:
 	var baseline={"hunger":28.0,"thirst":32.0,"sleepiness":20.0,"hygiene_need":22.0,"toilet_need":18.0,"boredom":38.0,"loneliness":18.0,"stress":12.0,"discomfort":8.0,"sexual_desire":20.0}
 	for key in baseline:
 		if needs_model.values.has(key): needs_model.values[key]=baseline[key]
-	_update_ui()
+	_debug_sync_controls(); _update_ui()
+
+func _debug_set_cleanliness(value:float)->void:
+	room_state.cleanliness=clamp(value,0.0,100.0); _debug_sync_controls(); _update_ui()
 
 func _debug_advance_time(minutes:float)->void:
 	if status=="thinking": return
@@ -517,6 +545,7 @@ func _label(pos: Vector2, text: String, font_size: int) -> Label:
 
 func _update_ui() -> void:
 	if not labels.has("time"): return
+	if debug_panel != null and debug_panel.visible: _debug_sync_controls()
 	labels["time"].text = ObserverText.time_label(clock.text(),str(clock.snapshot().get("period","")))
 	var current_activity := ObserverText.activity_label(activity_executor.activity_id if activity_executor.activity_id != "" else "wait")
 	labels["action"].text = "現在\n%s\n状態：%s" % [current_activity,ObserverText.status_label(status)]
@@ -559,7 +588,7 @@ func _update_ui() -> void:
 	if habit_lines.is_empty() and skill_names.is_empty(): personality += "・暮らしの傾向を観察中"
 	if personality_label != null: personality_label.text=personality
 	if debug_panel != null and debug_panel.visible:
-		var debug_text := "STATUS: %s\nACTIVITY: %s  TARGET: %s  STATE: %s\nPOSTURE: %s  CELL: %s  HELD: %s\nCASH: %d  TISSUES: %d  STAINS: %d  TRASH: %d\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,activity_executor.activity_id,activity_executor.target_id,activity_executor.state_name(),resident_state.posture,str(resident_state.current_cell),resident_state.held_item_id,finance.cash,int(room_state.resources.get("tissues",0)),room_state.private_stains,int(room_state.resources.get("trash",0)),validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
+		var debug_text := "STATUS: %s\nACTIVITY: %s  TARGET: %s  STATE: %s\nPOSTURE: %s  CELL: %s  HELD: %s\nCASH: %d  CLEANLINESS: %.0f  TISSUES: %d  STAINS: %d  TRASH: %d\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,activity_executor.activity_id,activity_executor.target_id,activity_executor.state_name(),resident_state.posture,str(resident_state.current_cell),resident_state.held_item_id,finance.cash,room_state.cleanliness,int(room_state.resources.get("tissues",0)),room_state.private_stains,int(room_state.resources.get("trash",0)),validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
 		debug_label.text = debug_text
 
 func _relationship_quality(value:int)->String:
