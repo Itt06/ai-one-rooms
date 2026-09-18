@@ -433,22 +433,26 @@ func _add_room_art() -> void:
 
 func _build_ui() -> void:
 	labels["time"] = _label(Vector2(920,20),"",23)
-	labels["action"] = _label(Vector2(920,58),"",18)
-	labels["reason"] = _label(Vector2(920,90),"",14); labels["reason"].size = Vector2(345,54); labels["reason"].autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	labels["action"] = _label(Vector2(920,57),"",17); labels["action"].size = Vector2(345,45); labels["action"].autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; labels["action"].clip_text=true
+	labels["reason"] = _label(Vector2(920,105),"",12); labels["reason"].size = Vector2(345,38); labels["reason"].autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; labels["reason"].clip_text=true
 	labels["connection"] = _label(Vector2(920,150),"",13)
-	labels["panel"] = _label(Vector2(920,180),"",12); labels["panel"].size = Vector2(345,285); labels["panel"].clip_text=true
-	progress_bar = ProgressBar.new(); progress_bar.position=Vector2(920,485); progress_bar.size=Vector2(345,18); progress_bar.visible=false; add_child(progress_bar)
-	life_feed_label=_label(Vector2(40,548),"",12); life_feed_label.size=Vector2(830,105); life_feed_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
-	personality_label=_label(Vector2(895,548),"",12); personality_label.size=Vector2(360,105); personality_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
-	var save := Button.new(); save.text = "保存"; save.position = Vector2(900,658); save.pressed.connect(_save_game); add_child(save)
-	var pause := Button.new(); pause.text = "一時停止"; pause.position = Vector2(955,658); pause.pressed.connect(func(): speed = 0.0 if speed > 0.0 else 1.0); add_child(pause)
-	var speeds := OptionButton.new(); speeds.position = Vector2(1035,658)
+	labels["right_current"] = _label(Vector2(920,180),"",12); labels["right_current"].size = Vector2(345,36); labels["right_current"].clip_text=true
+	labels["right_needs"] = _label(Vector2(920,216),"",11); labels["right_needs"].size = Vector2(345,145); labels["right_needs"].clip_text=true
+	labels["right_room"] = _label(Vector2(920,361),"",11); labels["right_room"].size = Vector2(345,42); labels["right_room"].clip_text=true
+	labels["right_life"] = _label(Vector2(920,403),"",11); labels["right_life"].size = Vector2(345,42); labels["right_life"].clip_text=true
+	labels["right_relationships"] = _label(Vector2(920,445),"",11); labels["right_relationships"].size = Vector2(345,42); labels["right_relationships"].clip_text=true
+	progress_bar = ProgressBar.new(); progress_bar.position=Vector2(920,490); progress_bar.size=Vector2(345,18); progress_bar.visible=false; add_child(progress_bar)
+	life_feed_label=_label(Vector2(40,548),"",11); life_feed_label.size=Vector2(830,95); life_feed_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; life_feed_label.clip_text=true
+	personality_label=_label(Vector2(895,548),"",11); personality_label.size=Vector2(360,95); personality_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; personality_label.clip_text=true
+	var save := Button.new(); save.text = "保存"; save.position = Vector2(900,652); save.pressed.connect(_save_game); add_child(save)
+	var pause := Button.new(); pause.text = "一時停止"; pause.position = Vector2(955,652); pause.pressed.connect(func(): speed = 0.0 if speed > 0.0 else 1.0); add_child(pause)
+	var speeds := OptionButton.new(); speeds.position = Vector2(1035,652)
 	for x in [1,2,4,8]: speeds.add_item("%sx" % x)
 	speeds.item_selected.connect(func(i): speed = pow(2.0,i)); add_child(speeds)
-	var debug_button := Button.new(); debug_button.text = "デバッグ"; debug_button.position = Vector2(1140,658); debug_button.pressed.connect(_toggle_debug); add_child(debug_button)
-	var diary_button := Button.new(); diary_button.text = "日記"; diary_button.position = Vector2(900,690); diary_button.pressed.connect(_show_diary); add_child(diary_button)
-	var settings_button := Button.new(); settings_button.text = "設定"; settings_button.position = Vector2(955,690); settings_button.pressed.connect(_show_settings); add_child(settings_button)
-	var reset_button := Button.new(); reset_button.text = "新しい生活"; reset_button.position = Vector2(1010,690); reset_button.pressed.connect(_confirm_reset); add_child(reset_button)
+	var debug_button := Button.new(); debug_button.text = "デバッグ"; debug_button.position = Vector2(1140,652); debug_button.pressed.connect(_toggle_debug); add_child(debug_button)
+	var diary_button := Button.new(); diary_button.text = "日記"; diary_button.position = Vector2(900,685); diary_button.pressed.connect(_show_diary); add_child(diary_button)
+	var settings_button := Button.new(); settings_button.text = "設定"; settings_button.position = Vector2(955,685); settings_button.pressed.connect(_show_settings); add_child(settings_button)
+	var reset_button := Button.new(); reset_button.text = "新しい生活"; reset_button.position = Vector2(1010,685); reset_button.pressed.connect(_confirm_reset); add_child(reset_button)
 	debug_panel = Panel.new(); debug_panel.position = Vector2(35,35); debug_panel.size = Vector2(835,610); debug_panel.visible = false; debug_panel.z_index = 20; add_child(debug_panel)
 	debug_label = Label.new(); debug_label.position = Vector2(14,14); debug_label.size = Vector2(805,575); debug_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; debug_label.add_theme_font_size_override("font_size",12); debug_panel.add_child(debug_label)
 
@@ -461,29 +465,31 @@ func _label(pos: Vector2, text: String, font_size: int) -> Label:
 func _update_ui() -> void:
 	if not labels.has("time"): return
 	labels["time"].text = ObserverText.time_label(clock.text(),str(clock.snapshot().get("period","")))
-	labels["action"].text = "現在：%s（%s）" % [ObserverText.activity_label(activity_executor.activity_id if activity_executor.activity_id != "" else "wait"),ObserverText.status_label(status)]
+	var current_activity := ObserverText.activity_label(activity_executor.activity_id if activity_executor.activity_id != "" else "wait")
+	labels["action"].text = "現在\n%s\n状態：%s" % [current_activity,ObserverText.status_label(status)]
 	labels["reason"].text = "公開された理由：" + ObserverText.public_reason(intention if intention!="" else reason)
 	labels["connection"].text = ObserverText.connection_label(llm_status) + "　" + ("自動保存" if save_status.to_lower().contains("auto-save") else "保存済み")
 	if progress_bar != null:
-		progress_bar.visible = activity_executor.is_active()
+		progress_bar.visible = activity_executor.is_active() and activity_executor.activity_id != ""
 		var definition:=ActivityCatalog.get_definition(activity_executor.activity_id)
 		progress_bar.max_value=float(definition.get("duration_minutes",1)); progress_bar.value=progress_bar.max_value-activity_executor.remaining_minutes
-	var text := "今の状態\n"
-	for key in needs_model.values: text += "%s：%s\n" % [ObserverText.need_label(key),ObserverText.need_state(float(needs_model.values[key]))]
-	text += "\n部屋\n清潔さ：%s\n食料：%s\nゴミ：%s\n" % ["きれい" if room_state.cleanliness>=60 else "少し散らかっている",ObserverText.resource_quality(room_state.item_quantity("simple_food")),ObserverText.trash_quality(int(room_state.resources.get("trash",0)))]
-	text += "\n生活\n所持金：%d円\n次の支払い：約%.1f時間後\n" % [finance.cash,max(0.0,finance.next_fixed_expense_time-clock.total_minutes)/60.0]
-	text += "人間関係\n恋人：%s\n友人：%s\n元恋人：%s\n" % [_relationship_quality(int(relationships.contacts.girlfriend_01.relationship)),_relationship_quality(int(relationships.contacts.friend_01.relationship)),_relationship_quality(int(relationships.contacts.ex_01.relationship))]
+	labels["right_current"].text = "CURRENT\n現在：%s" % current_activity
+	var needs_text := "CURRENT CONDITION\n"
+	for key in needs_model.values: needs_text += "%s：%s\n" % [ObserverText.need_label(key),ObserverText.need_state(float(needs_model.values[key]))]
+	labels["right_needs"].text = needs_text
+	labels["right_room"].text = "ROOM\n清潔さ：%s　食料：%s　ゴミ：%s" % ["きれい" if room_state.cleanliness>=60 else "少し散らかっている",ObserverText.resource_quality(room_state.item_quantity("simple_food")),ObserverText.trash_quality(int(room_state.resources.get("trash",0)))]
+	labels["right_life"].text = "LIFE / FINANCE\n所持金：%d円　次の支払い：約%.1f時間後" % [finance.cash,max(0.0,finance.next_fixed_expense_time-clock.total_minutes)/60.0]
+	labels["right_relationships"].text = "RELATIONSHIPS\n恋人：%s　友人：%s　元恋人：%s" % [_relationship_quality(int(relationships.contacts.girlfriend_01.relationship)),_relationship_quality(int(relationships.contacts.friend_01.relationship)),_relationship_quality(int(relationships.contacts.ex_01.relationship))]
 	var pref_summary := preferences.summary()
 	var habit_lines:Array=[]
 	for habit in habit_store.summary(): habit_lines.append(ObserverText.habit_label(str(habit)))
 	var skill_names:Array=[]
 	for skill in skill_store.skills.slice(0,min(5,skill_store.skills.size())): skill_names.append(ObserverText.skill_label(skill))
-	labels["panel"].text = text
 	var history_text := "最近の出来事\n"
 	for item in decision_history.slice(0,min(5,decision_history.size())):
 		history_text += "%s\n" % _observer_feed_text(str(item.get("event",item.get("action",""))),str(item.get("action","")),str(item.get("target","")),str(item.get("reason",item.get("text",""))))
 	if life_feed_label != null: life_feed_label.text=history_text.left(1050)
-	var personality:="この人らしさ\n"
+	var personality:="この人らしさ / 身についたこと\n"
 	var shown_preferences:=0
 	for key in pref_summary:
 		if abs(float(pref_summary[key]))<0.15: continue
