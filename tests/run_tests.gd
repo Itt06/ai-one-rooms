@@ -411,5 +411,8 @@ func _test_v24_private_activity_consequences()->void:
 	var clean_exec:=ActivityExecutor.new(); _check(bool(clean_exec.begin("clean","sink","test",room,needs,resident).ok),"clean should begin near sink"); clean_exec.update(30.0); clean_exec.complete(room,needs,resident); _check(room.private_stains==0,"clean should remove stains")
 	_check(ResidentVisualAdapter.region_for("masturbate","acting","sitting",0)!=ResidentVisualAdapter.region_for("unknown","idle","standing",0),"masturbation should not use idle pose")
 	_check(ResidentVisualAdapter.region_for("sex","acting","lying",0)!=ResidentVisualAdapter.region_for("masturbate","acting","sitting",0),"sex should use a distinct privacy pose")
+	_check(ObserverText.activity_label("masturbate")=="性欲を解消している","masturbation observer text should be direct")
+	_check(ObserverText.activity_completed_label("masturbate")=="性欲を解消した","masturbation completion text should be direct")
+	_check(ObserverText.activity_label("sex")=="パートナーと親密な時間を過ごしている","sex observer text should identify partner")
 	var debug_needs:=ResidentNeeds.new(); debug_needs.values.hunger=clamp(140.0,0.0,100.0); debug_needs.values.thirst=clamp(-5.0,0.0,100.0); _check(debug_needs.values.hunger==100.0 and debug_needs.values.thirst==0.0,"debug need values should clamp")
 	var debug_room:=RoomState.new(); debug_room.cleanliness=clamp(-10.0,0.0,100.0); _check(debug_room.cleanliness==0.0,"debug cleanliness lower clamp"); debug_room.cleanliness=clamp(140.0,0.0,100.0); _check(debug_room.cleanliness==100.0,"debug cleanliness upper clamp")
