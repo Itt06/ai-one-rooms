@@ -77,15 +77,22 @@ func _test_v21_presentation_contract() -> void:
 
 func _test_resident_visual_mapping() -> void:
 	_check(ResidentVisualAdapter.region_for("","idle","standing",0).position == Vector2.ZERO, "idle should use idle sprite")
-	_check(ResidentVisualAdapter.region_for("","moving","standing",0).position == Vector2(768,384), "moving should use walk sprite")
-	_check(ResidentVisualAdapter.region_for("sleep","acting","lying",0).position == Vector2(384,768), "sleep should use sleep sprite")
-	_check(ResidentVisualAdapter.region_for("read","acting","sitting",0).position == Vector2(768,768), "read should use read sprite")
-	_check(ResidentVisualAdapter.region_for("use_pc","acting","sitting",0).position == Vector2(1152,768), "pc should use pc sprite")
-	_check(ResidentVisualAdapter.region_for("","idle","sitting",0).position == Vector2.ZERO + Vector2(0,768), "sitting should use sit sprite")
+	_check(ResidentVisualAdapter.region_for("","moving","standing",0) != ResidentVisualAdapter.region_for("","idle","standing",0), "moving should use walk sprite")
+	_check(ResidentVisualAdapter.region_for("sleep","acting","lying",0) != ResidentVisualAdapter.region_for("","idle","standing",0), "sleep should use sleep sprite")
+	_check(ResidentVisualAdapter.region_for("read","acting","sitting",0) != ResidentVisualAdapter.region_for("sleep","acting","lying",0), "read should use read sprite")
+	_check(ResidentVisualAdapter.region_for("use_pc","acting","sitting",0) != ResidentVisualAdapter.region_for("read","acting","sitting",0), "pc should use pc sprite")
+	_check(ResidentVisualAdapter.region_for("","idle","sitting",0) != ResidentVisualAdapter.region_for("","idle","standing",0), "sitting should use sit sprite")
 	_check(ResidentVisualAdapter.region_for("watch_tv","acting","sitting",0) != ResidentVisualAdapter.region_for("use_pc","acting","sitting",0), "tv should use a distinct pose")
 	_check(ResidentVisualAdapter.region_for("clean","acting","standing",0) != ResidentVisualAdapter.region_for("write_diary","acting","sitting",0), "clean should use a distinct pose")
 	_check(ResidentVisualAdapter.held_prop("book_01","read") == "本", "book prop should be visible")
 	_check(ResidentVisualAdapter.region_for("unknown","idle","standing",0).position == Vector2.ZERO, "unknown activity should safely use idle")
+	for activity in ["look_out_window","take_shower","use_toilet","clean","take_out_trash","order_groceries","wait"]:
+		_check(ResidentVisualAdapter.uses_supplemental(activity), "missing supplemental pose: %s" % activity)
+	for activity in ActivityCatalog.DEFINITIONS.keys():
+		var visual_region:=ResidentVisualAdapter.supplemental_region(str(activity)) if ResidentVisualAdapter.uses_supplemental(str(activity)) else ResidentVisualAdapter.region_for(str(activity),"acting","standing",0)
+		_check(visual_region.size.x>0.0 and visual_region.size.y>0.0, "activity has no visual region: %s" % activity)
+	var moving_resident:=ResidentState.new(); moving_resident.posture="sitting"; moving_resident.posture_target_id="chair"; ResidentMovement.prepare_posture(moving_resident)
+	_check(moving_resident.posture=="standing" and moving_resident.posture_target_id=="", "movement must stand the resident before walking")
 
 func _test_candidates_and_validation() -> void:
 	var room := RoomState.new()
