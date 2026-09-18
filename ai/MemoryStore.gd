@@ -45,7 +45,7 @@ static func _narrate(event:Dictionary)->String:
 	if benefit!="": text+="; it helped with my %s"%benefit
 	return text+"."
 
-func retrieve(action_ids: Array, goals: Array, limit := 6, current_target := "", strong_needs := []) -> Array:
+func retrieve(action_ids: Array, goals: Array, limit := 6, current_target := "", strong_needs := [], topic_context := []) -> Array:
 	var scored: Array = []
 	for i in range(entries.size()):
 		var memory: Dictionary = entries[i]
@@ -56,6 +56,10 @@ func retrieve(action_ids: Array, goals: Array, limit := 6, current_target := "",
 		if current_target != "" and current_target in memory.get("related_objects", []):
 			score += 0.35
 		var lower_summary := str(memory.get("summary", "")).to_lower()
+		for topic in topic_context:
+			var topic_text:=str(topic).to_lower()
+			if topic_text=="": continue
+			if topic_text in lower_summary or topic_text in str(memory.get("related_objects",[])).to_lower() or topic_text in str(memory.get("related_action","")).to_lower(): score += 0.5
 		for goal in goals:
 			for token in _tokens(str(goal)):
 				if token.length() >= 3 and token in lower_summary:

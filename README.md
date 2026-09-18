@@ -94,6 +94,7 @@ ai/
   MemoryStore.gd
   GoalStore.gd
   PreferenceStore.gd
+  DiaryComposer.gd
   prompts/resident_system_prompt.txt
 
 persistence/
@@ -168,5 +169,7 @@ godot --headless --path . --script res://tests/live_soak.gd -- --fresh --decisio
 ```
 
 The save format is currently version 5. Existing v1.1 saves are migrated conservatively; unavailable history is not fabricated. `--days` and `--speed` only affect the test runner.
+
+V2 observer presentation keeps technical validation in the debug panel while the normal life feed shows completed activities and verified preference, habit, and skill transitions. Diary entries are generated deterministically from completed activity state; no additional LLM request is used.
 
 Activity execution is restored as idle after loading a save; persistent world and resident state are retained safely.

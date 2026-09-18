@@ -3,20 +3,31 @@ extends RefCounted
 
 const MAX_HABITS:=24
 var habits:Array=[]
+var last_transition := ""
 
 func record(event:Dictionary)->void:
 	if not bool(event.get("result",{}).get("success",true)): return
 	var activity:=str(event.get("activity","")); if activity=="": return
 	var hour:=int(event.get("time_hour",event.get("context",{}).get("time_of_day",-1)))
-	var period:="morning" if hour>=6 and hour<12 else ("afternoon" if hour<18 else ("evening" if hour<24 else "night"))
+	var period:=period_for_hour(hour)
 	var target:=str(event.get("target","")); var target_type:=target
 	var key:=activity+"|"+period+"|"+target_type
 	var row:=_find(key)
 	if row.is_empty():
 		row={"id":"habit_%s"%key.replace("|","_"),"activity":activity,"context":{"time_of_day":period,"target_type":target_type},"count":0,"confidence":0.0,"key":key}; habits.append(row)
 	row.count=int(row.get("count",0))+1
+	var was_established:=float(row.get("confidence",0.0))>=0.16
 	if row.count>=3: row.confidence=clamp(float(row.get("confidence",0.0))+0.08,0.0,1.0)
+	if not was_established and float(row.get("confidence",0.0))>=0.16: last_transition="Has started repeating %s in the %s" % [activity,period]
 	if habits.size()>MAX_HABITS: habits.pop_front()
+
+static func period_for_hour(hour:int)->String:
+	if hour<0:return "unknown"
+	if hour<6:return "night"
+	if hour<12:return "morning"
+	if hour<18:return "afternoon"
+	if hour<22:return "evening"
+	return "night"
 
 func summary()->Array:
 	var out:Array=[]
@@ -26,6 +37,7 @@ func summary()->Array:
 
 func serialize()->Dictionary:return {"habits":habits.duplicate(true)}
 func load_state(data)->void:
+	last_transition=""
 	habits=data.get("habits",[]).duplicate(true) if data is Dictionary and data.get("habits",[]) is Array else []
 	if habits.size()>MAX_HABITS:habits.resize(MAX_HABITS)
 func _find(key:String)->Dictionary:
