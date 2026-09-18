@@ -34,7 +34,7 @@ func _initialize() -> void:
 		scene.clock=WorldClock.new(); scene.room_state=RoomState.new(); scene.needs_model=ResidentNeeds.new(); scene.memory_store=MemoryStore.new(); scene.goal_store=GoalStore.new(); scene.preferences=PreferenceStore.new(); scene.habit_store=HabitStore.new(); scene.skill_store=SkillStore.new(); scene.plan_history=PlanHistory.new(); scene.recent_activity_history=[]; scene.diary=[]; scene.decision_history=[]; scene.resident_state=ResidentState.new(); scene.resident_state.render_position=scene._cell_to_position(scene.resident_state.current_cell); scene.status="idle"; scene.reason="The room is quiet."; scene.intention=""
 	var baseline_decisions:=int(scene.diagnostics.get("total_decisions",0))
 	var baseline:Dictionary={}
-	for key in ["plans_completed","plans_aborted","fallback_waits","fallback_schema","fallback_semantic","fallback_repair_failed","fallback_transport","fallback_other","schema_repair_attempts","semantic_repair_attempts","repair_recovered","repair_failed","skills_invoked","skills_completed","skills_failed","activities_started","activities_completed","activities_failed","activities_interrupted","primitive_only_plans","plans_with_activity","food_consumed","groceries_ordered","trash_generated","trash_removed","cleaning_activities","sleep_completed"]: baseline[key]=int(scene.diagnostics.get(key,0))
+	for key in ["plans_completed","plans_aborted","fallback_waits","fallback_schema","fallback_semantic","fallback_repair_failed","fallback_transport","fallback_other","schema_repair_attempts","semantic_repair_attempts","repair_recovered","repair_failed","critical_preflight_rejections","skills_invoked","skills_completed","skills_failed","activities_started","activities_completed","activities_failed","activities_interrupted","primitive_only_plans","plans_with_activity","food_consumed","groceries_ordered","trash_generated","trash_removed","cleaning_activities","sleep_completed","drink_completed","toilet_completed"]: baseline[key]=int(scene.diagnostics.get(key,0))
 	var baseline_memories:int=scene.memory_store.entries.size(); var baseline_preferences:int=_sum_counts(scene.preferences.counts); var baseline_habit_evidence:int=_habit_evidence(scene.habit_store.habits); var baseline_habits:int=scene.habit_store.summary().size(); var baseline_skill_stats:Dictionary=scene.skill_store.candidate_stats.duplicate(true)
 	var baseline_activity_types:Dictionary=scene.diagnostics.get("activity_types_requested",{}).duplicate(true); var baseline_interruptions:Dictionary=scene.diagnostics.get("activity_interruption_reasons",{}).duplicate(true)
 	var baseline_interruption_record_count:int=(scene.diagnostics.get("activity_interruption_records",[]) as Array).size()
@@ -74,6 +74,8 @@ func _initialize() -> void:
 	print("Trash removed: %d" % _delta(scene,"trash_removed",baseline))
 	print("Cleaning activities: %d" % _delta(scene,"cleaning_activities",baseline))
 	print("Sleep completed: %d" % _delta(scene,"sleep_completed",baseline))
+	print("Drinks completed: %d" % _delta(scene,"drink_completed",baseline))
+	print("Toilet activities completed: %d" % _delta(scene,"toilet_completed",baseline))
 	print("Ending food: %d" % scene.room_state.item_quantity("simple_food"))
 	print("Minimum food: %d" % minimum_food)
 	print("Ending trash: %d" % int(scene.room_state.resources.get("trash",0)))
@@ -85,6 +87,7 @@ func _initialize() -> void:
 	print("Activity interruption reasons: %s" % JSON.stringify(_dictionary_delta(scene.diagnostics.get("activity_interruption_reasons",{}),baseline_interruptions)))
 	var interruption_records:Array=scene.diagnostics.get("activity_interruption_records",[]); print("Interruption audit: %s" % JSON.stringify(_summarize_interruptions(interruption_records.slice(baseline_interruption_record_count))))
 	print("Run-local fallback waits: %d" % _delta(scene,"fallback_waits",baseline))
+	print("Critical preflight rejects: %d" % _delta(scene,"critical_preflight_rejections",baseline))
 	for category in ["fallback_schema","fallback_semantic","fallback_repair_failed","fallback_transport","fallback_other"]: print("%s: %d" % [category,_delta(scene,category,baseline)])
 	print("Schema repair attempts: %d" % _delta(scene,"schema_repair_attempts",baseline))
 	print("Semantic repair attempts: %d" % _delta(scene,"semantic_repair_attempts",baseline))

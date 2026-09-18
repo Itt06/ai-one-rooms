@@ -1,6 +1,18 @@
 class_name ActivityExecutor
 extends RefCounted
 
+const CRITICAL_THIRST:=98.0
+const CRITICAL_TOILET:=98.0
+const CRITICAL_SLEEPINESS:=99.0
+const CRITICAL_DISCOMFORT:=98.0
+
+static func critical_need_error(activity_id:String, needs:ResidentNeeds)->String:
+	if float(needs.values.get("thirst",0.0))>=CRITICAL_THIRST and activity_id!="drink": return "critical_thirst_blocks_activity"
+	if float(needs.values.get("toilet_need",0.0))>=CRITICAL_TOILET and activity_id!="use_toilet": return "critical_toilet_blocks_activity"
+	if float(needs.values.get("sleepiness",0.0))>=CRITICAL_SLEEPINESS and activity_id!="sleep": return "critical_sleepiness_blocks_activity"
+	if float(needs.values.get("discomfort",0.0))>=CRITICAL_DISCOMFORT and activity_id not in ["clean","take_shower","take_out_trash","use_toilet","sleep"]: return "critical_discomfort_blocks_activity"
+	return ""
+
 enum State { IDLE, STARTING, RUNNING, COMPLETED, FAILED, INTERRUPTED }
 var state:State=State.IDLE
 var activity_id:=""
@@ -16,6 +28,8 @@ func begin(id:String,target:String,why:String,room:RoomState,needs:ResidentNeeds
 	reset()
 	var definition:=ActivityCatalog.get_definition(id)
 	if definition.is_empty(): state=State.FAILED; return {"ok":false,"error":"unknown_activity"}
+	var critical_error:=critical_need_error(id,needs)
+	if critical_error!="": state=State.FAILED; return {"ok":false,"error":critical_error}
 	if definition.target_kind=="none":
 		if target!="": state=State.FAILED; return {"ok":false,"error":"target_not_allowed"}
 	elif not room.objects.has(target) and not room.items.has(target):
@@ -28,7 +42,7 @@ func begin(id:String,target:String,why:String,room:RoomState,needs:ResidentNeeds
 	if definition.target_kind=="object" and not InteractionResolver.is_at_interaction_cell(room,target,resident.current_cell): state=State.FAILED; return {"ok":false,"error":"target_not_interactable_now"}
 	if id in ["use_pc","watch_tv","order_groceries"] and target in ["pc","tv"] and not bool(room.objects[target].get("state",false)): state=State.FAILED; return {"ok":false,"error":"target_is_off"}
 	if id=="drink" and target=="fridge" and not bool(room.objects[target].get("state",false)): state=State.FAILED; return {"ok":false,"error":"fridge_closed"}
-	if id=="drink" and int(room.resources.get("water",0))<=0: state=State.FAILED; return {"ok":false,"error":"water_unavailable"}
+	if id=="drink" and target!="sink" and int(room.resources.get("water",0))<=0: state=State.FAILED; return {"ok":false,"error":"water_unavailable"}
 	activity_id=id; target_id=target; reason=why; remaining_minutes=float(definition.duration_minutes); before_needs=needs.values.duplicate(true); started_cell=resident.current_cell; repetition_count=recent_count; preference_value=clamp(preference,-1.0,1.0); state=State.STARTING
 	return {"ok":true,"state":"starting","activity":id,"target":target}
 
