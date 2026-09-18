@@ -25,7 +25,7 @@ func _initialize() -> void:
 	_test_resident_visual_mapping()
 	_test_v23_life_systems()
 	_test_v24_private_activity_consequences()
-	_test_felt_pressures()
+	_test_resident_mind_layer()
 	_test_partner_visual_state()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
@@ -382,7 +382,7 @@ func _test_save_round_trip_and_migration() -> void:
 	var resident:=ResidentState.new(); resident.held_item_id="book_01"; resident.posture="sitting"; var resident_loaded:=ResidentState.new(); resident_loaded.load_state(resident.serialize())
 	_check(resident_loaded.held_item_id=="book_01" and resident_loaded.posture=="sitting", "resident state should round-trip")
 	var migrated:=SaveManager._migrate_versioned({"save_version":2},2)
-	_check(int(migrated.save_version)==SaveManager.SAVE_VERSION and migrated.has("plan_history") and migrated.has("skills"), "older save versions should migrate")
+	_check(int(migrated.save_version)==SaveManager.SAVE_VERSION and migrated.has("plan_history") and migrated.has("skills") and migrated.has("resident_mind"), "older save versions should migrate")
 	var test_path:="user://one_room_test_roundtrip.json"
 	var payload:={"sim_minutes":600.0,"room":room.serialize(),"resident_state":resident.serialize(),"needs":ResidentNeeds.new().snapshot(),"memory_store":{"entries":[]},"goal_store":{"goals":[]},"preferences":{},"diary":[],"decision_history":[],"plan_history":[],"skills":{"skills":[]}}
 	_check(SaveManager.save_state(payload,test_path), "SaveManager should write test round-trip")
@@ -391,16 +391,20 @@ func _test_save_round_trip_and_migration() -> void:
 	var persisted_room:=RoomState.new(); persisted_room.load_state(persisted.room); _check(int(persisted_room.resources.tissues)==3 and persisted_room.private_stains==2,"tissues and stains should round-trip")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(test_path))
 
-func _test_felt_pressures()->void:
-	var needs:=ResidentNeeds.new(); needs.values.sexual_desire=98.0; needs.values.loneliness=82.0; needs.values.stress=55.0
-	var observation:=ObservationBuilder.build(WorldClock.new(),needs,RoomState.new(),Vector2.ZERO,"idle",[],[],{},[],{}, {})
-	_check(str(observation.need_states.sexual_desire)=="intense","98 sexual desire should be intense")
-	_check(ObservationBuilder.intensity_for(88.0)=="strong","88 should be strong")
-	_check(ObservationBuilder.intensity_for(75.0)=="elevated","75 should be elevated")
-	needs.values.sexual_desire=100.0; var updated:=ObservationBuilder.build(WorldClock.new(),needs,RoomState.new(),Vector2.ZERO,"idle",[],[],{},[],{}, {})
-	_check(str(updated.need_states.sexual_desire)!="critical","sexual desire must not be critical")
-	var pressures:=ObservationBuilder.felt_pressures(needs); _check(str(pressures[0].need)=="sexual_desire","felt pressures should be strongest first")
-	_check(not updated.has("recommended_action") and not updated.has("suggested_action"),"felt pressures must not prescribe actions")
+func _test_resident_mind_layer()->void:
+	var mind:=ResidentMindState.new(); _check(mind.snapshot()==ResidentMindState.neutral(),"mind should have neutral defaults")
+	var valid:={"mood":"restless","wants":["I want something pleasant."],"concerns":[],"avoidances":[],"short_term_intentions":[],"social_attitude":"withdrawn","energy_attitude":"low effort"}
+	_check(bool(ResidentMindState.validate(valid).ok) and mind.load_state(valid),"valid appraisal should load")
+	_check(not bool(ResidentMindState.validate(valid.merged({"wants":["I want to watch_tv."]},true)).ok),"appraisal should reject action IDs")
+	var restored:=ResidentMindState.new();_check(restored.load_state(mind.serialize()) and restored.mood=="restless","mind should round-trip")
+	var needs:=ResidentNeeds.new();needs.values.sexual_desire=100.0;needs.values.thirst=ActivityExecutor.CRITICAL_THIRST
+	var observation:=ObservationBuilder.build(WorldClock.new(),needs,RoomState.new(),Vector2.ZERO,"idle",[],[],{},[],{}, {},[],{}, {"resident_mind":mind.snapshot()})
+	_check(not observation.self.has("needs") and not observation.has("felt_pressures") and not observation.has("need_states"),"decision observation must hide raw and legacy need framing")
+	_check(observation.resident_mind.mood=="restless","decision observation should contain persistent mind")
+	var conditions:Array=[];for constraint in observation.physical_constraints:conditions.append(str(constraint.condition))
+	_check("severe_thirst" in conditions and not "sexual_arousal" in conditions,"physical constraints should preserve authority and exclude sexual desire")
+	var facts:=ObservationBuilder.build_appraisal_facts(WorldClock.new(),needs,RoomState.new(),[],[],{}, {},{}, {})
+	_check(str(facts).find("100")<0 and facts.body_state.has("You feel intensely sexually aroused."),"appraisal facts should describe body without raw need numbers")
 
 func _test_partner_visual_state()->void:
 	var visual:=PartnerVisualState.new(); var relation:={"id":"girlfriend_01","relation_type":"girlfriend","adult":true}

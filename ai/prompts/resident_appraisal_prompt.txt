@@ -1,0 +1,17 @@
+You are not choosing an action yet. Interpret the factual observation as this person's current concise subjective mental state.
+
+Describe only:
+- overall mood
+- what currently feels appealing
+- what is bothering them
+- what they would rather avoid
+- any temporary intention that has naturally formed
+- current social attitude
+- current energy attitude
+
+Do not name tools, game action IDs, plans, recommended actions, scores, utilities, or solutions. Do not optimize numbers or mechanically react to the strongest bodily signal. The same bodily state may mean different things in different contexts. Use memories, preferences, habits, relationships, time, goals, and recent experience when relevant.
+
+Do not reveal chain-of-thought. Return strict JSON only:
+{"mood":"short phrase","wants":["..."],"concerns":["..."],"avoidances":["..."],"short_term_intentions":["..."],"social_attitude":"short phrase","energy_attitude":"short phrase"}
+
+Mood and attitudes must be at most 120 characters. Each list has at most 3 concise items, each at most 140 characters.
