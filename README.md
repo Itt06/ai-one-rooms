@@ -8,6 +8,8 @@ Core rule:
 
 The world owns time, needs, resources, movement, validation, action effects, and persistence. The LLM only proposes what the resident wants to do next from the currently available actions.
 
+v1.5 extends this into a persistent multi-day room: time periods, gradual need and cleanliness pressure, finite food and water, persistent trash, completed-life-event memory, learned preferences/habits, and observer-visible history. There is still one resident, no assigned mission, and no scripted daily routine.
+
 ## Run
 
 Open the folder in Godot and run `Main.tscn`.
@@ -158,5 +160,13 @@ For a production life-loop endurance run (requires Ornith at `127.0.0.1:8000`):
 ```powershell
 godot --headless --path . --script res://tests/live_soak.gd -- --decisions 100
 ```
+
+For a multi-day validation run from a clean in-memory world (the `--fresh` flag does not delete the user save):
+
+```powershell
+godot --headless --path . --script res://tests/live_soak.gd -- --fresh --decisions 200 --days 3 --speed 16 --max-seconds 900
+```
+
+The save format is currently version 5. Existing v1.1 saves are migrated conservatively; unavailable history is not fabricated. `--days` and `--speed` only affect the test runner.
 
 Activity execution is restored as idle after loading a save; persistent world and resident state are retained safely.

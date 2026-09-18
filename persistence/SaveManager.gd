@@ -1,7 +1,7 @@
 class_name SaveManager
 extends RefCounted
 
-const SAVE_VERSION := 4
+const SAVE_VERSION := 5
 const SAVE_PATH := "user://one_room_save.json"
 
 static func save_state(state: Dictionary, path: String = SAVE_PATH) -> bool:
@@ -62,4 +62,5 @@ static func _migrate_versioned(data:Dictionary, from_version:int)->Dictionary:
 	if not migrated.has("preferences"):migrated["preferences"]={}
 	if not migrated.has("diary"):migrated["diary"]=[]
 	if not migrated.has("diagnostics"):migrated["diagnostics"]={}
+	if not migrated.has("sim_minutes"):migrated["sim_minutes"]=480.0
 	return migrated

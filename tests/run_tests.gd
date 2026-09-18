@@ -18,6 +18,7 @@ func _initialize() -> void:
 	_test_v11_life_loop()
 	_test_timed_activity_lifecycle()
 	_test_skill_production_path()
+	_test_multiday_world_dynamics()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -256,6 +257,36 @@ func _test_skill_production_path() -> void:
 	store.mark_used("skill_read_book",true); _check(int(store.skills[0].success_count)==1 and int(store.skills[0].failure_count)==0, "Skill success telemetry should be recorded")
 	var failure_store:=SkillStore.new(); failure_store.skills.append(store.skills[0].duplicate(true)); failure_store.mark_used("skill_read_book",false)
 	_check(int(failure_store.skills[0].failure_count)==1 and int(failure_store.skills[0].success_count)==1, "Skill failure telemetry should be recorded safely")
+
+func _test_multiday_world_dynamics() -> void:
+	var clock:=WorldClock.new(); clock.advance(720.0,1.0)
+	_check(clock.snapshot().day==2 and clock.snapshot().period=="morning", "WorldClock should expose consecutive days and period")
+	var needs:=ResidentNeeds.new(); var start:=needs.snapshot(); needs.advance(1440.0)
+	_check(float(needs.values.hunger)<=100.0 and float(needs.values.thirst)<=100.0 and float(needs.values.hunger)>float(start.hunger), "24h needs progression should be bounded")
+	var long_needs:=ResidentNeeds.new(); long_needs.advance(4320.0); _check(float(long_needs.values.discomfort)<100.0, "discomfort should not force a multi-day death spiral")
+	var focused:=ResidentNeeds.new(); var thirst_before:float=float(focused.values.thirst); focused.advance(60.0,["thirst"]); _check(focused.values.thirst==thirst_before, "active drinking should not grow thirst during the activity")
+	var recovery_room:=RoomState.new(); var recovery_resident:=ResidentState.new(); recovery_resident.current_cell=recovery_room.objects.sink.interaction_cells[0]; var recovery_needs:=ResidentNeeds.new(); recovery_needs.values.thirst=99.0; recovery_needs.values.toilet_need=99.0
+	var blocked:=ActivityExecutor.new(); _check(not bool(blocked.begin("read","book_01","blocked",recovery_room,recovery_needs,recovery_resident).get("ok",false)) and blocked.state==ActivityExecutor.State.FAILED, "critical thirst should reject unrelated Activity before start")
+	var drinker:=ActivityExecutor.new(); _check(bool(drinker.begin("drink","sink","recover thirst",recovery_room,recovery_needs,recovery_resident).get("ok",false)), "critical thirst should permit drink even with critical toilet need"); _check(ActivityExecutor.critical_need_error("drink",recovery_needs)=="", "drink should not be blocked by another critical need"); drinker.update(10.0); _check(bool(drinker.complete(recovery_room,recovery_needs,recovery_resident).get("ok",false)) and recovery_needs.values.thirst<90.0, "drink should leave critical thirst")
+	recovery_resident.current_cell=recovery_room.objects.toilet.interaction_cells[0]; var toilet_user:=ActivityExecutor.new(); _check(bool(toilet_user.begin("use_toilet","toilet","recover toilet need",recovery_room,recovery_needs,recovery_resident).get("ok",false)), "critical toilet need should permit toilet use even with remaining critical thirst"); _check(ActivityExecutor.critical_need_error("use_toilet",recovery_needs)=="", "toilet use should not be blocked by another critical need"); toilet_user.update(10.0); _check(bool(toilet_user.complete(recovery_room,recovery_needs,recovery_resident).get("ok",false)) and recovery_needs.values.toilet_need<90.0, "toilet use should leave critical toilet need")
+	_check(recovery_room.item_quantity("simple_food")>=0 and recovery_room.resources.has("water"), "multi-day recovery world should retain authoritative resources")
+	recovery_room.resources.water=0; recovery_needs.values.thirst=97.0; recovery_resident.current_cell=recovery_room.objects.sink.interaction_cells[0]; var sink_drinker:=ActivityExecutor.new(); _check(bool(sink_drinker.begin("drink","sink","utility water",recovery_room,recovery_needs,recovery_resident).get("ok",false)), "sink should remain drinkable when finite water is empty")
+	sink_drinker.update(10.0); _check(bool(sink_drinker.complete(recovery_room,recovery_needs,recovery_resident).get("ok",false)) and recovery_needs.values.thirst<90.0, "sink drinking should complete without finite water")
+	var runtime_needs:=ResidentNeeds.new(); runtime_needs.values.thirst=99.0; runtime_needs.values.toilet_need=99.0; _check(ActivityExecutor.critical_need_error("drink",runtime_needs)=="", "recovery activity must not be interrupted by another critical need"); _check(ActivityExecutor.critical_need_error("read",runtime_needs)!="", "unrelated activity must be blocked while a need is critical"); runtime_needs.values.thirst=99.0; runtime_needs.values.toilet_need=0.0; _check(ActivityExecutor.critical_need_error("read",runtime_needs)!="", "unrelated activity must be interrupted when thirst becomes critical")
+	var room:=RoomState.new(); var resident:=ResidentState.new(); resident.current_cell=room.objects.fridge.interaction_cells[0]; room.objects.fridge.state=true; var normal_needs:=ResidentNeeds.new()
+	resident.held_item_id="food_stack"; room.items.food_stack.location="held"; room.items.food_stack.held_by="resident"; room.items.food_stack.container=null
+	var eater:=ActivityExecutor.new(); var eat_started:=eater.begin("eat","food_stack","eat",room,normal_needs,resident); _check(bool(eat_started.ok), "eating should start with stock")
+	eater.update(15.0); var food_before:=room.item_quantity("simple_food"); var eat_result:=eater.complete(room,normal_needs,resident); _check(bool(eat_result.ok) and room.item_quantity("simple_food")==food_before-1 and int(room.resources.trash)==1, "eating should consume food and create trash")
+	_check(resident.held_item_id=="food_stack" and room.items.food_stack.held_by=="resident", "remaining held food stack should preserve ownership")
+	room.objects.pc.state=true; resident.current_cell=room.objects.pc.interaction_cells[0]
+	var grocer:=ActivityExecutor.new(); grocer.begin("order_groceries","pc","order",room,normal_needs,resident); grocer.update(10.0); grocer.complete(room,normal_needs,resident); _check(room.item_quantity("simple_food")>food_before-1, "groceries should replenish stock")
+	var dirty:=room.cleanliness; room.advance(1440.0); _check(room.cleanliness<dirty, "cleanliness should decline gradually")
+	var five_day_room:=RoomState.new(); five_day_room.advance(7200.0); _check(five_day_room.cleanliness>0.0, "cleanliness should remain gradual across several days")
+	var dry:=RoomState.new(); var dry_resident:=ResidentState.new(); dry_resident.current_cell=dry.objects.fridge.interaction_cells[0]; dry.objects.fridge.state=true; dry.items.food_stack.quantity=0; var dry_eat:=ActivityExecutor.new(); _check(not bool(dry_eat.begin("eat","food_stack","eat",dry,needs,dry_resident).get("ok",false)), "eating with no food must be rejected")
+	room.resources.trash=3; var cleaner:=ActivityExecutor.new(); resident.current_cell=room.objects.sink.interaction_cells[0]; cleaner.begin("clean","sink","clean",room,normal_needs,resident); cleaner.update(30.0); cleaner.complete(room,normal_needs,resident); _check(room.cleanliness>dirty-10.0, "cleaning should improve cleanliness")
+	var remover:=ActivityExecutor.new(); resident.current_cell=room.objects.trash_bin.interaction_cells[0]; remover.begin("take_out_trash","trash_bin","remove",room,normal_needs,resident); remover.update(15.0); remover.complete(room,normal_needs,resident); _check(int(room.resources.trash)==0, "taking out trash should remove accumulated trash")
+	var reader:=ActivityExecutor.new(); resident.current_cell=room.objects.bookshelf.interaction_cells[0]; _check(bool(reader.begin("read","book_01","read",room,normal_needs,resident).get("ok",false)), "reading should complete from a normal nearby state"); reader.update(30.0); _check(bool(reader.complete(room,normal_needs,resident).get("ok",false)), "reading should complete after its duration")
+	var diarist:=ActivityExecutor.new(); resident.current_cell=room.objects.desk.interaction_cells[0]; _check(bool(diarist.begin("write_diary","desk","write",room,normal_needs,resident).get("ok",false)), "diary activity should start normally"); diarist.update(20.0); _check(bool(diarist.complete(room,normal_needs,resident,"A quiet day.").get("ok",false)), "diary activity should complete normally")
 
 func _test_save_round_trip_and_migration() -> void:
 	var room:=RoomState.new(); room.objects.chair.state=true; room.move_object("chair",Vector2i(5,1),0); room.items.food_stack.quantity=2

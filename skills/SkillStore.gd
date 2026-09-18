@@ -24,7 +24,8 @@ func relevant(room:RoomState, held_item:String, needs:Dictionary, resident:Resid
 		var expanded:=SkillExecutor.expand(skill,room)
 		if expanded.is_empty():continue
 		if resident!=null:
-			var check:=PlanPreflight.validate(expanded,room,resident,ResidentNeeds.new())
+			var current_needs:=ResidentNeeds.new(); current_needs.load_snapshot(needs)
+			var check:=PlanPreflight.validate(expanded,room,resident,current_needs)
 			if not bool(check.get("ok",false)):continue
 		skill.offer_count=int(skill.get("offer_count",0))+1
 		candidate_stats["skills_offered"]=int(candidate_stats.get("skills_offered",0))+1

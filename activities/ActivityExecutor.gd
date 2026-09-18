@@ -1,6 +1,27 @@
 class_name ActivityExecutor
 extends RefCounted
 
+const CRITICAL_THIRST:=98.0
+const CRITICAL_TOILET:=98.0
+const CRITICAL_SLEEPINESS:=99.0
+const CRITICAL_DISCOMFORT:=98.0
+
+static func critical_need_error(activity_id:String, needs:ResidentNeeds)->String:
+	var critical:Dictionary={
+		"thirst":float(needs.values.get("thirst",0.0))>=CRITICAL_THIRST,
+		"toilet_need":float(needs.values.get("toilet_need",0.0))>=CRITICAL_TOILET,
+		"sleepiness":float(needs.values.get("sleepiness",0.0))>=CRITICAL_SLEEPINESS,
+		"discomfort":float(needs.values.get("discomfort",0.0))>=CRITICAL_DISCOMFORT
+	}
+	# A recovery Activity only needs to relieve one currently critical Need.
+	# This prevents simultaneous critical Needs from deadlocking each other.
+	var relief:Dictionary={"drink":["thirst"],"use_toilet":["toilet_need"],"sleep":["sleepiness","discomfort"],"clean":["discomfort"],"take_shower":["discomfort"],"take_out_trash":["discomfort"]}
+	for need_name in relief.get(activity_id,[]):
+		if bool(critical.get(need_name,false)): return ""
+	for need_name in ["thirst","toilet_need","sleepiness","discomfort"]:
+		if bool(critical.get(need_name,false)): return "critical_%s_blocks_activity" % need_name
+	return ""
+
 enum State { IDLE, STARTING, RUNNING, COMPLETED, FAILED, INTERRUPTED }
 var state:State=State.IDLE
 var activity_id:=""
@@ -16,16 +37,21 @@ func begin(id:String,target:String,why:String,room:RoomState,needs:ResidentNeeds
 	reset()
 	var definition:=ActivityCatalog.get_definition(id)
 	if definition.is_empty(): state=State.FAILED; return {"ok":false,"error":"unknown_activity"}
+	var critical_error:=critical_need_error(id,needs)
+	if critical_error!="": state=State.FAILED; return {"ok":false,"error":critical_error}
 	if definition.target_kind=="none":
 		if target!="": state=State.FAILED; return {"ok":false,"error":"target_not_allowed"}
 	elif not room.objects.has(target) and not room.items.has(target):
 		state=State.FAILED; return {"ok":false,"error":"target_not_found"}
 	if definition.has("target_type"):
 		var target_data:Dictionary=room.objects.get(target,room.items.get(target,{}))
-		if str(target_data.get("type",""))!=str(definition.target_type): state=State.FAILED; return {"ok":false,"error":"target_type_mismatch"}
+		if str(target_data.get("type",target))!=str(definition.target_type): state=State.FAILED; return {"ok":false,"error":"target_type_mismatch"}
+	if bool(definition.get("consumes_item",false)) and int(room.items.get(target,{}).get("quantity",0))<=0:
+		state=State.FAILED; return {"ok":false,"error":"item_unavailable"}
 	if definition.target_kind=="object" and not InteractionResolver.is_at_interaction_cell(room,target,resident.current_cell): state=State.FAILED; return {"ok":false,"error":"target_not_interactable_now"}
 	if id in ["use_pc","watch_tv","order_groceries"] and target in ["pc","tv"] and not bool(room.objects[target].get("state",false)): state=State.FAILED; return {"ok":false,"error":"target_is_off"}
 	if id=="drink" and target=="fridge" and not bool(room.objects[target].get("state",false)): state=State.FAILED; return {"ok":false,"error":"fridge_closed"}
+	if id=="drink" and target!="sink" and int(room.resources.get("water",0))<=0: state=State.FAILED; return {"ok":false,"error":"water_unavailable"}
 	activity_id=id; target_id=target; reason=why; remaining_minutes=float(definition.duration_minutes); before_needs=needs.values.duplicate(true); started_cell=resident.current_cell; repetition_count=recent_count; preference_value=clamp(preference,-1.0,1.0); state=State.STARTING
 	return {"ok":true,"state":"starting","activity":id,"target":target}
 

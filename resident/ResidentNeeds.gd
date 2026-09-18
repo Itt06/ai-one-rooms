@@ -3,14 +3,16 @@ extends RefCounted
 
 const RATES := {
 	"hunger":0.10,
-	"thirst":0.16,
+	"thirst":0.08,
 	"sleepiness":0.08,
 	"hygiene_need":0.04,
-	"toilet_need":0.07,
+	"toilet_need":0.04,
 	"boredom":0.05,
 	"loneliness":0.015,
 	"stress":0.01,
-	"discomfort":0.02
+	# Discomfort is a slow accumulating consequence, not a guaranteed
+	# multi-day death spiral. Critical thresholds remain authoritative.
+	"discomfort":0.005
 }
 
 var values := {
@@ -25,19 +27,20 @@ var values := {
 	"discomfort":8.0
 }
 
-func advance(minutes: float) -> void:
+func advance(minutes: float, suppressed_needs:Array=[] ) -> void:
 	for key in RATES:
+		if key in suppressed_needs: continue
 		values[key] = clamp(float(values.get(key,0.0)) + float(RATES[key]) * minutes, 0.0, 100.0)
 	if float(values.hunger) > 85.0:
-		values.stress = min(100.0, float(values.stress) + minutes * 0.03)
+		values.stress = min(100.0, float(values.stress) + minutes * 0.0005)
 	if float(values.thirst) > 85.0:
-		values.stress = min(100.0, float(values.stress) + minutes * 0.06)
+		values.stress = min(100.0, float(values.stress) + minutes * 0.001)
 	if float(values.sleepiness) > 90.0:
-		values.discomfort = min(100.0, float(values.discomfort) + minutes * 0.05)
+		values.discomfort = min(100.0, float(values.discomfort) + minutes * 0.0008)
 	if float(values.hygiene_need) > 85.0:
-		values.discomfort = min(100.0, float(values.discomfort) + minutes * 0.04)
+		values.discomfort = min(100.0, float(values.discomfort) + minutes * 0.0005)
 	if float(values.toilet_need) > 85.0:
-		values.discomfort = min(100.0, float(values.discomfort) + minutes * 0.08)
+		values.discomfort = min(100.0, float(values.discomfort) + minutes * 0.001)
 
 func apply(effects: Dictionary) -> void:
 	for key in effects:

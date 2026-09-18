@@ -42,10 +42,11 @@ func _setup_affordances() -> void:
 	for id in affordances: objects[id]["supported_tools"] = affordances[id]
 
 func advance(minutes: float) -> void:
-	cleanliness = clamp(cleanliness - minutes * 0.006, 0.0, 100.0)
+	# A lived-in room degrades over days, not in a single afternoon.
+	cleanliness = clamp(cleanliness - minutes * 0.001, 0.0, 100.0)
 	var trash := float(resources.get("trash",0))
 	if trash > 0.0:
-		cleanliness = clamp(cleanliness - minutes * 0.002 * min(trash,10.0),0.0,100.0)
+		cleanliness = clamp(cleanliness - minutes * 0.0003 * min(trash,10.0),0.0,100.0)
 
 func item_quantity(item_type:String)->int:
 	var total:=0
@@ -66,9 +67,13 @@ func consume_item(item_id:String)->bool:
 	if not items.has(item_id):return false
 	var item:Dictionary=items[item_id]; var quantity:=int(item.get("quantity",1))
 	if quantity<=0:return false
-	if quantity>1: item["quantity"]=quantity-1
-	else: item["location"]="consumed"; item["quantity"]=0
-	item["held_by"]=""; item["container"]=null; item["grid_cell"]=null; revision+=1; return true
+	if quantity>1:
+		# Consuming one unit from a held stack must not silently drop the
+		# remaining stack or break the Resident <-> Item ownership invariant.
+		item["quantity"]=quantity-1
+	else:
+		item["location"]="consumed"; item["quantity"]=0; item["held_by"]=""; item["container"]=null; item["grid_cell"]=null
+	revision+=1; return true
 
 func visible_objects() -> Array:
 	var result: Array = []
