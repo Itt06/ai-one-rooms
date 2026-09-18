@@ -12,7 +12,8 @@ const RATES := {
 	"stress":0.01,
 	# Discomfort is a slow accumulating consequence, not a guaranteed
 	# multi-day death spiral. Critical thresholds remain authoritative.
-	"discomfort":0.005
+	"discomfort":0.005,
+	"sexual_desire":0.012
 }
 
 var values := {
@@ -24,7 +25,8 @@ var values := {
 	"boredom":38.0,
 	"loneliness":18.0,
 	"stress":12.0,
-	"discomfort":8.0
+	"discomfort":8.0,
+	"sexual_desire":20.0
 }
 
 func advance(minutes: float, suppressed_needs:Array=[] ) -> void:

@@ -1,9 +1,9 @@
 class_name ObserverText
 extends RefCounted
 
-const NEEDS := {"hunger":"空腹","thirst":"のどの渇き","sleepiness":"眠気","hygiene_need":"清潔","toilet_need":"トイレ","boredom":"退屈","loneliness":"寂しさ","stress":"ストレス","discomfort":"不快感"}
-const ACTIVITIES := {"read":"本を読んでいる","sleep":"寝ている","drink":"水を飲んでいる","eat":"食事をしている","use_pc":"PCを使っている","watch_tv":"テレビを見ている","clean":"部屋を片付けている","take_shower":"シャワーを浴びている","use_toilet":"トイレを使っている","write_diary":"日記を書いている","call_friend":"誰かに電話している","order_groceries":"食料を注文している","take_out_trash":"ゴミを捨てている","wait":"ぼんやりしている","look_out_window":"窓の外を眺めている"}
-const PREFS := {"read":"読書","sleep":"睡眠","drink":"水分補給","eat":"食事","use_pc":"PCを使うこと","watch_tv":"テレビを見ること","clean":"片付け","take_shower":"シャワー","use_toilet":"トイレ","write_diary":"日記を書くこと","call_friend":"電話すること","look_out_window":"窓の外を見ること","order_groceries":"食料を注文すること","take_out_trash":"ゴミ出し","wait":"ぼんやりすること"}
+const NEEDS := {"hunger":"空腹","thirst":"のどの渇き","sleepiness":"眠気","hygiene_need":"清潔","toilet_need":"トイレ","boredom":"退屈","loneliness":"寂しさ","stress":"ストレス","discomfort":"不快感","sexual_desire":"性欲"}
+const ACTIVITIES := {"read":"本を読んでいる","sleep":"寝ている","drink":"水を飲んでいる","eat":"食事をしている","use_pc":"PCを使っている","watch_tv":"テレビを見ている","clean":"部屋を片付けている","take_shower":"シャワーを浴びている","use_toilet":"トイレを使っている","write_diary":"日記を書いている","call_friend":"誰かに電話している","order_groceries":"食料を注文している","take_out_trash":"ゴミを捨てている","wait":"ぼんやりしている","look_out_window":"窓の外を眺めている","remote_work":"仕事をしている","masturbate":"一人で過ごしている","message_contact":"連絡をしている","call_contact":"電話をしている","meet_contact":"人と過ごしている","invite_for_sex":"親密な誘いをしている","sex":"パートナーと親密な時間を過ごしている"}
+const PREFS := {"read":"読書","sleep":"睡眠","drink":"水分補給","eat":"食事","use_pc":"PCを使うこと","watch_tv":"テレビを見ること","clean":"片付け","take_shower":"シャワー","use_toilet":"トイレ","write_diary":"日記を書くこと","call_friend":"電話すること","look_out_window":"窓の外を見ること","order_groceries":"食料を注文すること","take_out_trash":"ゴミ出し","wait":"ぼんやりすること","remote_work":"仕事","masturbate":"一人の時間","message_contact":"連絡","call_contact":"電話","meet_contact":"人と会うこと","invite_for_sex":"親密な誘い","sex":"親密な時間"}
 
 static func need_label(id:String)->String: return str(NEEDS.get(id,id))
 static func activity_label(id:String)->String: return str(ACTIVITIES.get(id,id))

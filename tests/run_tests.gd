@@ -23,6 +23,7 @@ func _initialize() -> void:
 	_test_v20_observer_data()
 	_test_v21_presentation_contract()
 	_test_resident_visual_mapping()
+	_test_v23_life_systems()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -86,6 +87,40 @@ func _test_resident_visual_mapping() -> void:
 	_check(ResidentVisualAdapter.region_for("clean","acting","standing",0) != ResidentVisualAdapter.region_for("write_diary","acting","sitting",0), "clean should use a distinct pose")
 	_check(ResidentVisualAdapter.held_prop("book_01","read") == "本", "book prop should be visible")
 	_check(ResidentVisualAdapter.region_for("unknown","idle","standing",0).position == Vector2.ZERO, "unknown activity should safely use idle")
+
+func _test_v23_life_systems()->void:
+	var finance:=ResidentFinance.new();var start_cash:=finance.cash
+	_check(finance.spend(ResidentFinance.GROCERIES_COST,"groceries","Day 1"),"groceries should spend cash")
+	_check(finance.cash==start_cash-ResidentFinance.GROCERIES_COST,"groceries cost mismatch")
+	finance.cash=0;_check(not finance.spend(1,"invalid","Day 1") and finance.cash==0,"cash must not go below zero")
+	finance.earn(ResidentFinance.WORK_INCOME,"remote_work","Day 1");_check(finance.cash==ResidentFinance.WORK_INCOME,"work should add approved income")
+	finance.next_fixed_expense_time=10.0;finance.advance(10.0,"Day 1");_check(finance.total_expenses>=ResidentFinance.GROCERIES_COST+ResidentFinance.FIXED_EXPENSE,"fixed expense should be charged")
+	var saved_finance:=finance.serialize();var restored_finance:=ResidentFinance.new();restored_finance.load_state(saved_finance);_check(restored_finance.cash==finance.cash,"finance roundtrip")
+	var needs:=ResidentNeeds.new();var desire_before:=float(needs.values.sexual_desire);needs.advance(60.0);_check(float(needs.values.sexual_desire)>desire_before,"sexual desire should rise")
+	needs.apply({"sexual_desire":-80.0});_check(float(needs.values.sexual_desire)<desire_before,"masturbation effect should reduce desire")
+	_check(ActivityExecutor.critical_need_error("read",needs)=="","sexual desire must never become critical")
+	var relations:=RelationshipStore.new();_check("girlfriend_01" in relations.sex_partner_candidates(20000),"girlfriend should be eligible")
+	relations.contacts.girlfriend_01.availability=false;_check("girlfriend_01" not in relations.sex_partner_candidates(20000),"unavailable contact must be excluded");relations.contacts.girlfriend_01.availability=true
+	_check("sex_worker_01" not in relations.sex_partner_candidates(0),"paid partner must require cash")
+	_check("friend_01" not in relations.sex_partner_candidates(20000),"low-intimacy friend must not be eligible")
+	_check("casual_partner_01" in relations.sex_partner_candidates(20000),"casual partner route should be eligible from intimacy state")
+	_check(ActivityCatalog.DEFINITIONS.has("call_contact"),"contact calling activity should exist")
+	var life_context:={"cash":20000,"contact_targets":relations.contacts.keys(),"sexual_partner_options":relations.sex_partner_candidates(20000),"accepted_partner_targets":[]}
+	var contact_tools:=PrimitiveToolCatalog.available(RoomState.new(),{"current_cell":Vector2i(6,4),"held_item_id":""},life_context)
+	var call_targets:Array=[];var invite_targets:Array=[];var sex_available:=false
+	for tool in contact_tools:
+		if str(tool.get("tool",""))=="call_contact":call_targets=tool.get("valid_targets",[])
+		if str(tool.get("tool",""))=="invite_for_sex":invite_targets=tool.get("valid_targets",[])
+		if str(tool.get("tool",""))=="sex":sex_available=true
+	_check("family_member_01" in call_targets,"ordinary contact should include family")
+	_check("family_member_01" not in invite_targets,"family must never be a sexual candidate")
+	_check(not sex_available,"sex tool must be unavailable without accepted context")
+	_check(not bool(relations.consume_context("girlfriend_01").ok),"sex must require accepted context")
+	var invite:=relations.invite("girlfriend_01",20000,"Day 1");_check(str(invite.outcome) in ["accepted","declined"],"invite resolver outcome")
+	_check(not bool(RelationshipStore.new().invite("invented",20000,"Day 1").ok),"invalid partner must be rejected")
+	var invalid_authority:=DecisionSchema.validate({"decision_type":"plan","reason":"x","plan":[{"tool":"wait","args":{}}],"goal_updates":{"add":[],"complete":[],"abandon":[]},"accepted":true});_check(not bool(invalid_authority.ok),"LLM cannot inject acceptance")
+	var restored_relations:=RelationshipStore.new();restored_relations.load_state(relations.serialize());_check(restored_relations.contacts.size()==relations.contacts.size(),"relationship roundtrip")
+	var migrated_relations:=RelationshipStore.new();migrated_relations.load_state({});_check(migrated_relations.contacts.has("girlfriend_01"),"legacy save without contacts should use safe defaults")
 
 func _test_candidates_and_validation() -> void:
 	var room := RoomState.new()

@@ -53,8 +53,10 @@ func _on_client_completed(success: bool, content: String, raw_response: String, 
 	if not success:
 		decision_failed.emit(error_message,latency_ms,raw_response)
 		return
-	var parsed = JSON.parse_string(content)
-	if not parsed is Dictionary:
+	var parser:=JSON.new()
+	var parse_error:=parser.parse(content)
+	var parsed=parser.data
+	if parse_error!=OK or not parsed is Dictionary:
 		validation_observed.emit("json",false,_repair_attempted)
 		_handle_invalid("schema","malformed_json",latency_ms,raw_response)
 		return
@@ -95,6 +97,8 @@ func _validate_semantic(parsed:Dictionary)->Dictionary:
 	var goals:=ActionValidator.validate_goal_updates(parsed.get("goal_updates",{}),_goals)
 	if not bool(goals.get("ok",false)): return {"ok":false,"error":"goal_updates:%s"%str(goals.get("error","invalid"))}
 	if parsed.decision_type=="plan":
+		var contextual:=_validate_contextual_targets(parsed.plan)
+		if not bool(contextual.get("ok",false)):return contextual
 		var resident:=ResidentState.new(); resident.load_state(_resident_snapshot)
 		var needs:=ResidentNeeds.new(); needs.load_snapshot(_needs_snapshot)
 		return PlanPreflight.validate(parsed.plan,_room,resident,needs)
@@ -107,3 +111,20 @@ func _validate_semantic(parsed:Dictionary)->Dictionary:
 			if expanded.is_empty():return {"ok":false,"error":"skill_expansion_failed"}
 			return PlanPreflight.validate(expanded,_room,resident_skill,needs_skill)
 	return {"ok":false,"error":"unknown_skill"}
+
+func _validate_contextual_targets(plan:Array)->Dictionary:
+	# These targets are authoritative observation state rather than room physics.
+	# Validate them here so invalid contact plans get the normal one-repair chance.
+	var contextual_tools:=["message_contact","call_contact","meet_contact","invite_for_sex","sex"]
+	for step in plan:
+		var tool:=str(step.get("tool",""))
+		if tool not in contextual_tools:continue
+		var target:=str(step.get("args",{}).get("target",""))
+		var found:=false
+		for candidate in _candidates:
+			if str(candidate.get("tool",""))!=tool:continue
+			found=true
+			if target not in candidate.get("valid_targets",[]):return {"ok":false,"error":"invalid_contact_target"}
+			break
+		if not found:return {"ok":false,"error":"contact_action_unavailable"}
+	return {"ok":true}

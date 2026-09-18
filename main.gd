@@ -32,6 +32,8 @@ var memory_store := MemoryStore.new()
 var goal_store := GoalStore.new()
 var preferences := PreferenceStore.new()
 var habit_store := HabitStore.new()
+var finance := ResidentFinance.new()
+var relationships := RelationshipStore.new()
 var recent_activity_history:Array=[]
 var activity_executor := ActivityExecutor.new()
 var harness: ResidentHarness
@@ -42,7 +44,7 @@ var plan_moving := false
 var plan_history := PlanHistory.new()
 var skill_store := SkillStore.new()
 var current_skill_id := ""
-var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"activity_types_requested":{},"activity_interruption_reasons":{},"activity_interruption_records":[],"primitive_only_plans":0,"plans_with_activity":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"critical_preflight_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"food_consumed":0,"groceries_ordered":0,"trash_generated":0,"trash_removed":0,"cleaning_activities":0,"sleep_completed":0,"drink_completed":0,"toilet_completed":0,"last_drink_result":{},"last_successful_drink_time":"","tool_frequency":{}}
+var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"activity_types_requested":{},"activity_interruption_reasons":{},"activity_interruption_records":[],"primitive_only_plans":0,"plans_with_activity":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"critical_preflight_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"food_consumed":0,"groceries_ordered":0,"trash_generated":0,"trash_removed":0,"cleaning_activities":0,"sleep_completed":0,"drink_completed":0,"toilet_completed":0,"work_completed":0,"masturbation_completed":0,"partner_invitations":0,"partner_accepted":0,"partner_declined":0,"sex_completed":0,"desire_samples":0,"desire_sum":0.0,"desire_min":100.0,"desire_max":0.0,"last_drink_result":{},"last_successful_drink_time":"","tool_frequency":{}}
 var decision_revision := 0
 
 func _ready() -> void:
@@ -74,6 +76,7 @@ func _process(delta: float) -> void:
 			suppressed=suppress_by_activity.get(activity_executor.activity_id,[])
 		needs_model.advance(elapsed_minutes,suppressed)
 		room_state.advance(elapsed_minutes)
+		finance.advance(clock.total_minutes,clock.text())
 		if room_state.cleanliness < 40.0:
 			needs_model.apply({"discomfort":elapsed_minutes * 0.001})
 	if activity_executor.is_active() and speed > 0.0:
@@ -98,8 +101,12 @@ func _request_decision() -> void:
 		return
 	var candidates:Array=[]
 	diagnostics.total_decisions+=1
+	var desire:=float(needs_model.values.get("sexual_desire",0.0));diagnostics.desire_samples=int(diagnostics.get("desire_samples",0))+1;diagnostics.desire_sum=float(diagnostics.get("desire_sum",0.0))+desire;diagnostics.desire_min=min(float(diagnostics.get("desire_min",100.0)),desire);diagnostics.desire_max=max(float(diagnostics.get("desire_max",0.0)),desire)
 	var action_ids: Array = []
-	for candidate in PrimitiveToolCatalog.available(room_state,{"current_cell":resident_state.current_cell,"held_item_id":resident_state.held_item_id}): action_ids.append(str(candidate.get("tool","")))
+	var contact_targets:Array=relationships.contacts.keys();var accepted_targets:Array=[]
+	if not relationships.accepted_partner_context.is_empty():accepted_targets=[str(relationships.accepted_partner_context.get("contact_id",""))]
+	var life_context:Dictionary={"cash":finance.cash,"contact_targets":contact_targets,"accepted_partner_targets":accepted_targets,"sexual_partner_options":relationships.sex_partner_candidates(finance.cash),"finances":finance.snapshot(clock.total_minutes),"relationships":relationships.observation()}
+	for candidate in PrimitiveToolCatalog.available(room_state,{"current_cell":resident_state.current_cell,"held_item_id":resident_state.held_item_id},life_context): action_ids.append(str(candidate.get("tool","")))
 	var strong_needs: Array = []
 	for key in needs_model.values:
 		if float(needs_model.values.get(key,0.0)) >= 70.0:
@@ -109,7 +116,7 @@ func _request_decision() -> void:
 	for memory in memories:
 		last_retrieved_memory_ids.append(str(memory.get("id","")))
 	var available_skills:=skill_store.relevant(room_state,resident_state.held_item_id,needs_model.values,resident_state,{"topics":_memory_topics(strong_needs),"strong_needs":strong_needs,"recent_actions":recent_activity_history.slice(0,6)})
-	var observation := ObservationBuilder.build(clock,needs_model,room_state,resident_state.render_position,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,{"habits":habit_store.summary()},{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},available_skills,_recent_behavior())
+	var observation := ObservationBuilder.build(clock,needs_model,room_state,resident_state.render_position,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,{"habits":habit_store.summary()},{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},available_skills,_recent_behavior(),life_context)
 	last_observation = JSON.stringify(observation)
 	status = "thinking"
 	validation_error = ""
@@ -162,6 +169,9 @@ func _run_plan_step()->void:
 		var args:Dictionary=step.get("args",{}); if not _begin_plan_move_cell(Vector2i(int(args.x),int(args.y))): _abort_plan("destination_unreachable")
 		return
 	if ActivityCatalog.DEFINITIONS.has(tool):
+		if ActivityCatalog.get_definition(tool).get("target_kind","")=="contact" and not relationships.contacts.has(target):_abort_plan("invalid_contact");return
+		if tool=="sex" and str(relationships.accepted_partner_context.get("contact_id",""))!=target:_abort_plan("accepted_partner_context_required");return
+		if tool=="order_groceries" and not finance.can_afford(ResidentFinance.GROCERIES_COST):_abort_plan("cannot_afford_groceries");return
 		var requested:Dictionary=diagnostics.get("activity_types_requested",{}); requested[tool]=int(requested.get(tool,0))+1; diagnostics["activity_types_requested"]=requested
 		var started:=activity_executor.begin(tool,target,reason,room_state,needs_model,resident_state,_recent_activity_count(tool),float(preferences.values.get(tool,0.0)))
 		if not bool(started.get("ok",false)): diagnostics.activities_failed+=1; _abort_plan(str(started.get("error","activity_failed"))); return
@@ -194,12 +204,21 @@ func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->vo
 
 func _finish_activity()->void:
 	var id:=activity_executor.activity_id; var target:=activity_executor.target_id
+	var relationship_outcome:=""
+	if id=="order_groceries" and not finance.spend(ResidentFinance.GROCERIES_COST,"groceries",clock.text()):diagnostics.activities_failed+=1;_abort_plan("cannot_afford_groceries");return
+	if id=="sex":
+		var accepted:=relationships.consume_context(target)
+		if not bool(accepted.get("ok",false)):diagnostics.activities_failed+=1;_abort_plan("accepted_partner_context_required");return
+		if str(relationships.contacts[target].relation_type)=="sex_worker" and not finance.spend(RelationshipStore.PAID_COST,"paid_intimacy",clock.text()):diagnostics.activities_failed+=1;_abort_plan("cannot_afford");return
+	if id=="remote_work":finance.earn(ResidentFinance.WORK_INCOME,"remote_work",clock.text())
+	if id=="invite_for_sex":relationship_outcome=str(relationships.invite(target,finance.cash,clock.text()).get("outcome",""))
+	if id in ["message_contact","call_contact","meet_contact"]:relationship_outcome=str(relationships.contact(target,id,clock.text()).get("outcome",""))
 	var diary_text:=DiaryComposer.compose(ObserverText.time_label(clock.text(),str(clock.snapshot().get("period",""))),id,activity_executor.before_needs,needs_model.values,str(recent_activity_history[0]) if not recent_activity_history.is_empty() else "",str(memory_store.entries[0].get("summary","")) if not memory_store.entries.is_empty() else "") if id=="write_diary" else ""
 	var result:=activity_executor.complete(room_state,needs_model,resident_state,diary_text)
 	if not bool(result.get("ok",false)): diagnostics.activities_failed+=1; _abort_plan(str(result.get("error","activity_failed"))); return
 	var before:Dictionary=result.get("before_needs",{}); var after:Dictionary=result.get("after_needs",{}); var improvement:=0.0
 	for key in ["boredom","stress","discomfort","loneliness"]:improvement+=float(before.get(key,0.0))-float(after.get(key,0.0))
-	var event:=LifeEvent.activity_completed(clock.text(),id,target,activity_executor.started_cell,float(result.get("duration_minutes",0.0)),before,after,{"posture":resident_state.posture,"posture_target":resident_state.posture_target_id,"held_item":resident_state.held_item_id,"time_of_day":clock.snapshot().get("hour",0)},str(result.get("result","completed")))
+	var event:=LifeEvent.activity_completed(clock.text(),id,target,activity_executor.started_cell,float(result.get("duration_minutes",0.0)),before,after,{"posture":resident_state.posture,"posture_target":resident_state.posture_target_id,"held_item":resident_state.held_item_id,"time_of_day":clock.snapshot().get("hour",0),"relationship_outcome":relationship_outcome,"cash":finance.cash},relationship_outcome if relationship_outcome!="" else str(result.get("result","completed")))
 	event["time_hour"]=int(clock.snapshot().get("hour",0)); event["salience"]=clamp(0.35+abs(improvement)/100.0,0.35,0.9)
 	preferences.record_life_event(event)
 	recent_activity_history.push_front(id)
@@ -221,6 +240,10 @@ func _finish_activity()->void:
 	if id=="drink":
 		diagnostics.drink_completed=int(diagnostics.get("drink_completed",0))+1; diagnostics.last_drink_result={"before_thirst":before.get("thirst",0.0),"after_thirst":after.get("thirst",0.0),"target":target}; diagnostics.last_successful_drink_time=clock.text()
 	if id=="use_toilet": diagnostics.toilet_completed=int(diagnostics.get("toilet_completed",0))+1
+	if id=="remote_work":diagnostics.work_completed=int(diagnostics.get("work_completed",0))+1
+	if id=="masturbate":diagnostics.masturbation_completed=int(diagnostics.get("masturbation_completed",0))+1
+	if id=="invite_for_sex":diagnostics.partner_invitations=int(diagnostics.get("partner_invitations",0))+1;diagnostics["partner_accepted" if relationship_outcome=="accepted" else "partner_declined"]=int(diagnostics.get("partner_accepted" if relationship_outcome=="accepted" else "partner_declined",0))+1
+	if id=="sex":diagnostics.sex_completed=int(diagnostics.get("sex_completed",0))+1
 	_record_history("activity_completed",id,target,reason)
 	DecisionLogger.append({"time":clock.text(),"action":id,"activity":id,"target":target,"reason":reason,"retrieved_memories":last_retrieved_memory_ids,"goals":goal_store.active_texts(),"latency_ms":last_latency_ms,"validation":"valid","result":"completed"})
 	_complete_plan_step(result)
@@ -355,6 +378,8 @@ func _save_game() -> void:
 		"plan_history":plan_history.serialize(),
 		"skills":skill_store.serialize(),
 		"diagnostics":diagnostics,
+		"finance":finance.serialize(),
+		"relationships":relationships.serialize(),
 		"resident_position":[resident_state.render_position.x,resident_state.render_position.y]
 	})
 	save_status = "Saved" if saved else "Save failed"
@@ -382,6 +407,7 @@ func _load_game() -> void:
 	resident_state.load_state(data.get("resident_state",{})); resident_state.render_position=_cell_to_position(resident_state.current_cell)
 	plan_history.load_state(data.get("plan_history",[]))
 	skill_store.load_state(data.get("skills",{}))
+	finance.load_state(data.get("finance",{}));relationships.load_state(data.get("relationships",{}))
 	room_state.repair_integrity(resident_state)
 	var loaded_diagnostics=data.get("diagnostics",{})
 	if loaded_diagnostics is Dictionary:
@@ -403,8 +429,8 @@ func _add_room_art() -> void:
 func _build_ui() -> void:
 	labels["time"] = _label(Vector2(920,20),"",23)
 	labels["action"] = _label(Vector2(920,56),"",18)
-	labels["reason"] = _label(Vector2(920,88),"",14); labels["reason"].size = Vector2(345,62)
-	labels["panel"] = _label(Vector2(920,155),"",13); labels["panel"].size = Vector2(345,345)
+	labels["reason"] = _label(Vector2(920,88),"",14); labels["reason"].size = Vector2(345,62); labels["reason"].autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; labels["reason"].clip_text=true
+	labels["panel"] = _label(Vector2(920,155),"",13); labels["panel"].size = Vector2(345,345); labels["panel"].autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; labels["panel"].clip_text=true
 	labels["history"] = _label(Vector2(920,505),"",12); labels["history"].size = Vector2(345,125)
 	labels["connection"] = _label(Vector2(920,130),"",13)
 	progress_bar = ProgressBar.new(); progress_bar.position=Vector2(920,430); progress_bar.size=Vector2(345,22); progress_bar.visible=false; add_child(progress_bar)
@@ -439,6 +465,8 @@ func _update_ui() -> void:
 	var text := "この人の状態\n"
 	for key in needs_model.values: text += "%s：%s\n" % [ObserverText.need_label(key),ObserverText.need_state(float(needs_model.values[key]))]
 	text += "\n部屋：%s　食料%d　水%d　ゴミ%d\n" % ["きれい" if room_state.cleanliness>=60 else "少し散らかっている",room_state.item_quantity("simple_food"),int(room_state.resources.get("water",0)),int(room_state.resources.get("trash",0))]
+	text += "\n生活\n所持金：%d円　次の支払い：約%.1f時間後\n" % [finance.cash,max(0.0,finance.next_fixed_expense_time-clock.total_minutes)/60.0]
+	text += "人間関係：恋人 %s　友人 %s　元恋人 %s\n" % [_relationship_quality(int(relationships.contacts.girlfriend_01.relationship)),_relationship_quality(int(relationships.contacts.friend_01.relationship)),_relationship_quality(int(relationships.contacts.ex_01.relationship))]
 	text += "\n目標\n" + ("まだない\n" if goal_store.active_texts().is_empty() else "\n".join(goal_store.active_texts()) + "\n")
 	text += "\nこの人の好み\n"
 	var pref_summary := preferences.summary()
@@ -458,6 +486,11 @@ func _update_ui() -> void:
 	if debug_panel != null and debug_panel.visible:
 		var debug_text := "STATUS: %s\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
 		debug_label.text = debug_text
+
+func _relationship_quality(value:int)->String:
+	if value>=70:return "良好"
+	if value>=45:return "普通"
+	return "距離がある"
 
 func _draw() -> void:
 	var period:=str(clock.snapshot().get("period","day")); var base:=Color("#d8c3a5") if period!="night" else Color("#46516b")

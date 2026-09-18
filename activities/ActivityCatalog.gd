@@ -16,7 +16,14 @@ const DEFINITIONS := {
 	"call_friend":{"duration_minutes":20.0,"required_tool":"call_friend","target_kind":"object","target_type":"phone","effects":{"loneliness":-50.0,"stress":-5.0,"boredom":-8.0},"activity_label":"calling a friend"},
 	"order_groceries":{"duration_minutes":10.0,"required_tool":"order_groceries","target_kind":"object","target_type":"pc","effects":{},"resource_effect":{"simple_food":6},"activity_label":"ordering groceries"},
 	"take_out_trash":{"duration_minutes":15.0,"required_tool":"take_out_trash","target_kind":"object","target_type":"trash_bin","effects":{"discomfort":-10.0},"activity_label":"taking out the trash"},
-	"wait":{"duration_minutes":10.0,"required_tool":"wait","target_kind":"none","effects":{},"activity_label":"waiting"}
+	"wait":{"duration_minutes":10.0,"required_tool":"wait","target_kind":"none","effects":{},"activity_label":"waiting"},
+	"remote_work":{"duration_minutes":180.0,"required_tool":"remote_work","target_kind":"object","target_type":"pc","effects":{"stress":10.0,"sleepiness":8.0,"boredom":6.0},"activity_label":"remote work"},
+	"masturbate":{"duration_minutes":20.0,"required_tool":"masturbate","target_kind":"none","effects":{"sexual_desire":-65.0,"stress":-4.0,"sleepiness":3.0},"activity_label":"private time"},
+	"message_contact":{"duration_minutes":10.0,"required_tool":"message_contact","target_kind":"contact","effects":{"loneliness":-6.0},"activity_label":"messaging a contact"},
+	"call_contact":{"duration_minutes":20.0,"required_tool":"call_contact","target_kind":"contact","effects":{"loneliness":-12.0,"stress":-2.0},"activity_label":"calling a contact"},
+	"meet_contact":{"duration_minutes":90.0,"required_tool":"meet_contact","target_kind":"contact","effects":{"loneliness":-22.0,"stress":-3.0},"activity_label":"spending time together"},
+	"invite_for_sex":{"duration_minutes":5.0,"required_tool":"invite_for_sex","target_kind":"contact","effects":{},"activity_label":"making an intimate invitation"},
+	"sex":{"duration_minutes":60.0,"required_tool":"sex","target_kind":"contact","effects":{"sexual_desire":-75.0,"loneliness":-18.0,"sleepiness":8.0},"activity_label":"spending intimate time together"}
 }
 
 static func get_definition(id:String)->Dictionary: return DEFINITIONS.get(id,{})
