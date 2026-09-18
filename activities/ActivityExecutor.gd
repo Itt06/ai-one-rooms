@@ -41,9 +41,9 @@ func begin(id:String,target:String,why:String,room:RoomState,needs:ResidentNeeds
 	if critical_error!="": state=State.FAILED; return {"ok":false,"error":critical_error}
 	if definition.target_kind=="none":
 		if target!="": state=State.FAILED; return {"ok":false,"error":"target_not_allowed"}
-	elif not room.objects.has(target) and not room.items.has(target):
+	elif definition.target_kind!="contact" and not room.objects.has(target) and not room.items.has(target):
 		state=State.FAILED; return {"ok":false,"error":"target_not_found"}
-	if definition.has("target_type"):
+	if definition.has("target_type") and definition.target_kind!="contact":
 		var target_data:Dictionary=room.objects.get(target,room.items.get(target,{}))
 		if str(target_data.get("type",target))!=str(definition.target_type): state=State.FAILED; return {"ok":false,"error":"target_type_mismatch"}
 	if bool(definition.get("consumes_item",false)) and int(room.items.get(target,{}).get("quantity",0))<=0:

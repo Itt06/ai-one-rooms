@@ -31,14 +31,16 @@ func _initialize() -> void:
 		return
 	var original_speed:float=scene.speed; scene.speed=0.0; await process_frame
 	if fresh_run:
-		scene.clock=WorldClock.new(); scene.room_state=RoomState.new(); scene.needs_model=ResidentNeeds.new(); scene.memory_store=MemoryStore.new(); scene.goal_store=GoalStore.new(); scene.preferences=PreferenceStore.new(); scene.habit_store=HabitStore.new(); scene.skill_store=SkillStore.new(); scene.plan_history=PlanHistory.new(); scene.recent_activity_history=[]; scene.diary=[]; scene.decision_history=[]; scene.resident_state=ResidentState.new(); scene.resident_state.render_position=scene._cell_to_position(scene.resident_state.current_cell); scene.status="idle"; scene.reason="The room is quiet."; scene.intention=""
+		scene.clock=WorldClock.new(); scene.room_state=RoomState.new(); scene.needs_model=ResidentNeeds.new(); scene.memory_store=MemoryStore.new(); scene.goal_store=GoalStore.new(); scene.preferences=PreferenceStore.new(); scene.habit_store=HabitStore.new(); scene.finance=ResidentFinance.new(); scene.relationships=RelationshipStore.new(); scene.skill_store=SkillStore.new(); scene.plan_history=PlanHistory.new(); scene.recent_activity_history=[]; scene.diary=[]; scene.decision_history=[]; scene.resident_state=ResidentState.new(); scene.resident_state.render_position=scene._cell_to_position(scene.resident_state.current_cell); scene.status="idle"; scene.reason="The room is quiet."; scene.intention=""
 	var baseline_decisions:=int(scene.diagnostics.get("total_decisions",0))
 	var baseline:Dictionary={}
-	for key in ["plans_completed","plans_aborted","fallback_waits","fallback_schema","fallback_semantic","fallback_repair_failed","fallback_transport","fallback_other","schema_repair_attempts","semantic_repair_attempts","repair_recovered","repair_failed","critical_preflight_rejections","skills_invoked","skills_completed","skills_failed","activities_started","activities_completed","activities_failed","activities_interrupted","primitive_only_plans","plans_with_activity","food_consumed","groceries_ordered","trash_generated","trash_removed","cleaning_activities","sleep_completed","drink_completed","toilet_completed"]: baseline[key]=int(scene.diagnostics.get(key,0))
+	for key in ["plans_completed","plans_aborted","fallback_waits","fallback_schema","fallback_semantic","fallback_repair_failed","fallback_transport","fallback_other","schema_repair_attempts","semantic_repair_attempts","repair_recovered","repair_failed","critical_preflight_rejections","skills_invoked","skills_completed","skills_failed","activities_started","activities_completed","activities_failed","activities_interrupted","primitive_only_plans","plans_with_activity","food_consumed","groceries_ordered","trash_generated","trash_removed","cleaning_activities","sleep_completed","drink_completed","toilet_completed","work_completed","masturbation_completed","partner_invitations","partner_accepted","partner_declined","sex_completed","desire_samples"]: baseline[key]=int(scene.diagnostics.get(key,0))
 	var baseline_memories:int=scene.memory_store.entries.size(); var baseline_preferences:int=_sum_counts(scene.preferences.counts); var baseline_habit_evidence:int=_habit_evidence(scene.habit_store.habits); var baseline_habits:int=scene.habit_store.summary().size(); var baseline_skill_stats:Dictionary=scene.skill_store.candidate_stats.duplicate(true)
 	var baseline_activity_types:Dictionary=scene.diagnostics.get("activity_types_requested",{}).duplicate(true); var baseline_interruptions:Dictionary=scene.diagnostics.get("activity_interruption_reasons",{}).duplicate(true)
 	var baseline_interruption_record_count:int=(scene.diagnostics.get("activity_interruption_records",[]) as Array).size()
 	var baseline_day:int=int(scene.clock.snapshot().get("day",1)); var initial_food:int=scene.room_state.item_quantity("simple_food"); var peak_trash:int=int(scene.room_state.resources.get("trash",0)); var minimum_food:int=initial_food
+	var starting_cash:int=scene.finance.cash; var starting_income:int=scene.finance.total_income; var starting_expenses:int=scene.finance.total_expenses; var starting_relationships:Dictionary=scene.relationships.serialize().get("contacts",{}).duplicate(true)
+	var desire_sum_start:float=float(scene.diagnostics.get("desire_sum",0.0)); var desire_min_start:float=float(scene.needs_model.values.get("sexual_desire",0.0)); var desire_max_start:=desire_min_start
 	scene.speed=requested_speed if requested_speed>0.0 else original_speed
 	print("Starting cumulative decisions: %d" % baseline_decisions)
 	print("Target new decisions: %d" % target)
@@ -47,6 +49,7 @@ func _initialize() -> void:
 	while waited<max_seconds and (int(scene.diagnostics.get("total_decisions",0))-baseline_decisions<target or int(scene.clock.snapshot().get("day",1))-baseline_day<target_days or scene.harness.is_busy() or scene.plan_executor.active):
 		await create_timer(1.0).timeout; waited+=1.0
 		peak_trash=max(peak_trash,int(scene.room_state.resources.get("trash",0))); minimum_food=min(minimum_food,scene.room_state.item_quantity("simple_food"))
+		desire_min_start=min(desire_min_start,float(scene.needs_model.values.get("sexual_desire",0.0))); desire_max_start=max(desire_max_start,float(scene.needs_model.values.get("sexual_desire",0.0)))
 		var count:=int(scene.diagnostics.get("total_decisions",0))-baseline_decisions
 		if count>0 and count%5==0 and count!=last_count:
 			print("[%d/%d] completed; plans completed: %d; plans aborted: %d; fallback waits: %d" % [count,target,scene.diagnostics.get("plans_completed",0),scene.diagnostics.get("plans_aborted",0),scene.diagnostics.get("fallback_waits",0)])
@@ -76,6 +79,20 @@ func _initialize() -> void:
 	print("Sleep completed: %d" % _delta(scene,"sleep_completed",baseline))
 	print("Drinks completed: %d" % _delta(scene,"drink_completed",baseline))
 	print("Toilet activities completed: %d" % _delta(scene,"toilet_completed",baseline))
+	print("Starting cash: %d" % starting_cash)
+	print("Ending cash: %d" % scene.finance.cash)
+	print("Income total: %d" % (scene.finance.total_income-starting_income))
+	print("Expense total: %d" % (scene.finance.total_expenses-starting_expenses))
+	print("Work activities: %d" % _delta(scene,"work_completed",baseline))
+	print("Masturbation count: %d" % _delta(scene,"masturbation_completed",baseline))
+	print("Partner invitations: %d" % _delta(scene,"partner_invitations",baseline))
+	print("Partner accepted: %d" % _delta(scene,"partner_accepted",baseline))
+	print("Partner declined: %d" % _delta(scene,"partner_declined",baseline))
+	print("Sex activities: %d" % _delta(scene,"sex_completed",baseline))
+	var desire_samples:int=_delta(scene,"desire_samples",baseline); var desire_average:float=(float(scene.diagnostics.get("desire_sum",0.0))-desire_sum_start)/float(desire_samples) if desire_samples>0 else float(scene.needs_model.values.get("sexual_desire",0.0))
+	print("Sexual desire average: %.1f" % desire_average)
+	print("Sexual desire range: %.1f..%.1f" % [desire_min_start,desire_max_start])
+	print("Relationship changes: %s" % JSON.stringify(_relationship_changes(starting_relationships,scene.relationships.contacts)))
 	print("Ending food: %d" % scene.room_state.item_quantity("simple_food"))
 	print("Minimum food: %d" % minimum_food)
 	print("Ending trash: %d" % int(scene.room_state.resources.get("trash",0)))
@@ -130,6 +147,15 @@ func _habit_evidence(habits:Array)->int:
 	var total:=0; for habit in habits:total+=int(habit.get("count",0))
 	return total
 
+func _relationship_changes(before:Dictionary,after:Dictionary)->Dictionary:
+	var result:Dictionary={}
+	for id in after:
+		if not before.has(id):continue
+		var relationship_delta:=int(after[id].get("relationship",0))-int(before[id].get("relationship",0))
+		var trust_delta:=int(after[id].get("trust",0))-int(before[id].get("trust",0))
+		if relationship_delta!=0 or trust_delta!=0:result[id]={"relationship":relationship_delta,"trust":trust_delta}
+	return result
+
 func _summarize_interruptions(records:Array)->Dictionary:
 	var result:Dictionary={}
 	for record in records:
@@ -166,8 +192,20 @@ func _check_integrity(scene:Node)->Array:
 	if scene.plan_history.entries.size()>50: issues.append("plan history limit exceeded")
 	if scene.skill_store.skills.size()>SkillStore.MAX_SKILLS: issues.append("skill limit exceeded")
 	if resident.posture_target_id!="" and not room.objects.has(resident.posture_target_id): issues.append("posture target missing")
+	if scene.finance.cash<0:issues.append("negative cash")
+	for id in scene.relationships.contacts:
+		var contact:Dictionary=scene.relationships.contacts[id]
+		for field in ["relationship","trust","attraction","intimacy_interest"]:
+			var value:=int(contact.get(field,0));if value<0 or value>100:issues.append("relationship value outside range: %s.%s"%[id,field])
+	if not scene.relationships.accepted_partner_context.is_empty():
+		var accepted_id:=str(scene.relationships.accepted_partner_context.get("contact_id",""))
+		if not scene.relationships.contacts.has(accepted_id):issues.append("accepted partner context missing contact")
 	var copy_room:=RoomState.new(); copy_room.load_state(room.serialize())
 	var copy_resident:=ResidentState.new(); copy_resident.load_state(resident.serialize())
 	if not copy_room.grid.is_inside(copy_resident.current_cell): issues.append("save/load resident corruption")
 	if copy_room.item_quantity("simple_food")!=room.item_quantity("simple_food"): issues.append("save/load item corruption")
+	var copy_finance:=ResidentFinance.new();copy_finance.load_state(scene.finance.serialize())
+	if copy_finance.cash!=scene.finance.cash or copy_finance.total_income!=scene.finance.total_income or copy_finance.total_expenses!=scene.finance.total_expenses:issues.append("save/load finance corruption")
+	var copy_relationships:=RelationshipStore.new();copy_relationships.load_state(scene.relationships.serialize())
+	if JSON.stringify(copy_relationships.serialize())!=JSON.stringify(scene.relationships.serialize()):issues.append("save/load relationship corruption")
 	return issues

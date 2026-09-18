@@ -38,7 +38,7 @@ func _init() -> void:
 	_setup_affordances()
 
 func _setup_affordances() -> void:
-	var affordances := {"bed":["move_near","inspect","sit","lie_down","sleep"],"desk":["move_near","inspect","sit","write_diary"],"chair":["move_near","inspect","sit"],"fridge":["move_near","inspect","open","close","drink","order_groceries"],"sink":["move_near","inspect","drink","clean"],"shower":["move_near","inspect","take_shower"],"toilet":["move_near","inspect","use_toilet"],"bookshelf":["move_near","inspect"],"pc":["move_near","inspect","turn_on","turn_off","use_pc","order_groceries"],"phone":["move_near","inspect","call_friend"],"tv":["move_near","inspect","turn_on","turn_off","watch_tv"],"window":["move_near","inspect","look_out_window"],"trash_bin":["move_near","inspect","take_out_trash"]}
+	var affordances := {"bed":["move_near","inspect","sit","lie_down","sleep"],"desk":["move_near","inspect","sit","write_diary"],"chair":["move_near","inspect","sit"],"fridge":["move_near","inspect","open","close","drink","order_groceries"],"sink":["move_near","inspect","drink","clean"],"shower":["move_near","inspect","take_shower"],"toilet":["move_near","inspect","use_toilet"],"bookshelf":["move_near","inspect"],"pc":["move_near","inspect","turn_on","turn_off","use_pc","order_groceries","remote_work"],"phone":["move_near","inspect","call_friend"],"tv":["move_near","inspect","turn_on","turn_off","watch_tv"],"window":["move_near","inspect","look_out_window"],"trash_bin":["move_near","inspect","take_out_trash"]}
 	for id in affordances: objects[id]["supported_tools"] = affordances[id]
 
 func advance(minutes: float) -> void:

@@ -20,7 +20,10 @@ var debug_panel: Panel
 var debug_label: Label
 var furniture_atlas: Texture2D
 var resident_atlas: Texture2D
+var resident_supplemental_atlas: Texture2D
 var progress_bar: ProgressBar
+var life_feed_label: Label
+var personality_label: Label
 var config_data: Dictionary = DEFAULT_CONFIG.duplicate(true)
 var save_status := "Auto-save on"
 var llm_status := "Ornith: Offline"
@@ -32,6 +35,8 @@ var memory_store := MemoryStore.new()
 var goal_store := GoalStore.new()
 var preferences := PreferenceStore.new()
 var habit_store := HabitStore.new()
+var finance := ResidentFinance.new()
+var relationships := RelationshipStore.new()
 var recent_activity_history:Array=[]
 var activity_executor := ActivityExecutor.new()
 var harness: ResidentHarness
@@ -42,12 +47,13 @@ var plan_moving := false
 var plan_history := PlanHistory.new()
 var skill_store := SkillStore.new()
 var current_skill_id := ""
-var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"activity_types_requested":{},"activity_interruption_reasons":{},"activity_interruption_records":[],"primitive_only_plans":0,"plans_with_activity":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"critical_preflight_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"food_consumed":0,"groceries_ordered":0,"trash_generated":0,"trash_removed":0,"cleaning_activities":0,"sleep_completed":0,"drink_completed":0,"toilet_completed":0,"last_drink_result":{},"last_successful_drink_time":"","tool_frequency":{}}
+var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"activity_types_requested":{},"activity_interruption_reasons":{},"activity_interruption_records":[],"primitive_only_plans":0,"plans_with_activity":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"critical_preflight_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"food_consumed":0,"groceries_ordered":0,"trash_generated":0,"trash_removed":0,"cleaning_activities":0,"sleep_completed":0,"drink_completed":0,"toilet_completed":0,"work_completed":0,"masturbation_completed":0,"partner_invitations":0,"partner_accepted":0,"partner_declined":0,"sex_completed":0,"desire_samples":0,"desire_sum":0.0,"desire_min":100.0,"desire_max":0.0,"last_drink_result":{},"last_successful_drink_time":"","tool_frequency":{}}
 var decision_revision := 0
 
 func _ready() -> void:
 	furniture_atlas = load(RoomVisualAdapter.ATLAS_PATH) as Texture2D
 	resident_atlas = load(ResidentVisualAdapter.ATLAS_PATH) as Texture2D
+	resident_supplemental_atlas = load(ResidentVisualAdapter.SUPPLEMENTAL_PATH) as Texture2D
 	config_data = _config()
 	_load_game()
 	harness = ResidentHarness.new()
@@ -59,7 +65,6 @@ func _ready() -> void:
 	harness.plan_ready.connect(_on_plan_ready)
 	harness.skill_ready.connect(_on_skill_ready)
 	resident_state.render_position = _cell_to_position(resident_state.current_cell)
-	_add_room_art()
 	_build_ui()
 	queue_redraw()
 	_request_decision()
@@ -74,6 +79,7 @@ func _process(delta: float) -> void:
 			suppressed=suppress_by_activity.get(activity_executor.activity_id,[])
 		needs_model.advance(elapsed_minutes,suppressed)
 		room_state.advance(elapsed_minutes)
+		finance.advance(clock.total_minutes,clock.text())
 		if room_state.cleanliness < 40.0:
 			needs_model.apply({"discomfort":elapsed_minutes * 0.001})
 	if activity_executor.is_active() and speed > 0.0:
@@ -98,8 +104,12 @@ func _request_decision() -> void:
 		return
 	var candidates:Array=[]
 	diagnostics.total_decisions+=1
+	var desire:=float(needs_model.values.get("sexual_desire",0.0));diagnostics.desire_samples=int(diagnostics.get("desire_samples",0))+1;diagnostics.desire_sum=float(diagnostics.get("desire_sum",0.0))+desire;diagnostics.desire_min=min(float(diagnostics.get("desire_min",100.0)),desire);diagnostics.desire_max=max(float(diagnostics.get("desire_max",0.0)),desire)
 	var action_ids: Array = []
-	for candidate in PrimitiveToolCatalog.available(room_state,{"current_cell":resident_state.current_cell,"held_item_id":resident_state.held_item_id}): action_ids.append(str(candidate.get("tool","")))
+	var contact_targets:Array=relationships.contacts.keys();var accepted_targets:Array=[]
+	if not relationships.accepted_partner_context.is_empty():accepted_targets=[str(relationships.accepted_partner_context.get("contact_id",""))]
+	var life_context:Dictionary={"cash":finance.cash,"contact_targets":contact_targets,"accepted_partner_targets":accepted_targets,"sexual_partner_options":relationships.sex_partner_candidates(finance.cash),"finances":finance.snapshot(clock.total_minutes),"relationships":relationships.observation()}
+	for candidate in PrimitiveToolCatalog.available(room_state,{"current_cell":resident_state.current_cell,"held_item_id":resident_state.held_item_id},life_context): action_ids.append(str(candidate.get("tool","")))
 	var strong_needs: Array = []
 	for key in needs_model.values:
 		if float(needs_model.values.get(key,0.0)) >= 70.0:
@@ -109,7 +119,7 @@ func _request_decision() -> void:
 	for memory in memories:
 		last_retrieved_memory_ids.append(str(memory.get("id","")))
 	var available_skills:=skill_store.relevant(room_state,resident_state.held_item_id,needs_model.values,resident_state,{"topics":_memory_topics(strong_needs),"strong_needs":strong_needs,"recent_actions":recent_activity_history.slice(0,6)})
-	var observation := ObservationBuilder.build(clock,needs_model,room_state,resident_state.render_position,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,{"habits":habit_store.summary()},{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},available_skills,_recent_behavior())
+	var observation := ObservationBuilder.build(clock,needs_model,room_state,resident_state.render_position,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,{"habits":habit_store.summary()},{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},available_skills,_recent_behavior(),life_context)
 	last_observation = JSON.stringify(observation)
 	status = "thinking"
 	validation_error = ""
@@ -162,6 +172,9 @@ func _run_plan_step()->void:
 		var args:Dictionary=step.get("args",{}); if not _begin_plan_move_cell(Vector2i(int(args.x),int(args.y))): _abort_plan("destination_unreachable")
 		return
 	if ActivityCatalog.DEFINITIONS.has(tool):
+		if ActivityCatalog.get_definition(tool).get("target_kind","")=="contact" and not relationships.contacts.has(target):_abort_plan("invalid_contact");return
+		if tool=="sex" and str(relationships.accepted_partner_context.get("contact_id",""))!=target:_abort_plan("accepted_partner_context_required");return
+		if tool=="order_groceries" and not finance.can_afford(ResidentFinance.GROCERIES_COST):_abort_plan("cannot_afford_groceries");return
 		var requested:Dictionary=diagnostics.get("activity_types_requested",{}); requested[tool]=int(requested.get(tool,0))+1; diagnostics["activity_types_requested"]=requested
 		var started:=activity_executor.begin(tool,target,reason,room_state,needs_model,resident_state,_recent_activity_count(tool),float(preferences.values.get(tool,0.0)))
 		if not bool(started.get("ok",false)): diagnostics.activities_failed+=1; _abort_plan(str(started.get("error","activity_failed"))); return
@@ -178,6 +191,7 @@ func _begin_plan_move(object_id:String)->bool:
 
 func _begin_plan_move_cell(destination:Vector2i)->bool:
 	if not resident_movement.begin(room_state.grid,resident_state.current_cell,destination,room_state.blocked_cells()):return false
+	ResidentMovement.prepare_posture(resident_state)
 	resident_state.next_cell=destination; plan_moving=true; status="moving"; return true
 
 func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->void:
@@ -194,12 +208,21 @@ func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->vo
 
 func _finish_activity()->void:
 	var id:=activity_executor.activity_id; var target:=activity_executor.target_id
+	var relationship_outcome:=""
+	if id=="order_groceries" and not finance.spend(ResidentFinance.GROCERIES_COST,"groceries",clock.text()):diagnostics.activities_failed+=1;_abort_plan("cannot_afford_groceries");return
+	if id=="sex":
+		var accepted:=relationships.consume_context(target)
+		if not bool(accepted.get("ok",false)):diagnostics.activities_failed+=1;_abort_plan("accepted_partner_context_required");return
+		if str(relationships.contacts[target].relation_type)=="sex_worker" and not finance.spend(RelationshipStore.PAID_COST,"paid_intimacy",clock.text()):diagnostics.activities_failed+=1;_abort_plan("cannot_afford");return
+	if id=="remote_work":finance.earn(ResidentFinance.WORK_INCOME,"remote_work",clock.text())
+	if id=="invite_for_sex":relationship_outcome=str(relationships.invite(target,finance.cash,clock.text()).get("outcome",""))
+	if id in ["message_contact","call_contact","meet_contact"]:relationship_outcome=str(relationships.contact(target,id,clock.text()).get("outcome",""))
 	var diary_text:=DiaryComposer.compose(ObserverText.time_label(clock.text(),str(clock.snapshot().get("period",""))),id,activity_executor.before_needs,needs_model.values,str(recent_activity_history[0]) if not recent_activity_history.is_empty() else "",str(memory_store.entries[0].get("summary","")) if not memory_store.entries.is_empty() else "") if id=="write_diary" else ""
 	var result:=activity_executor.complete(room_state,needs_model,resident_state,diary_text)
 	if not bool(result.get("ok",false)): diagnostics.activities_failed+=1; _abort_plan(str(result.get("error","activity_failed"))); return
 	var before:Dictionary=result.get("before_needs",{}); var after:Dictionary=result.get("after_needs",{}); var improvement:=0.0
 	for key in ["boredom","stress","discomfort","loneliness"]:improvement+=float(before.get(key,0.0))-float(after.get(key,0.0))
-	var event:=LifeEvent.activity_completed(clock.text(),id,target,activity_executor.started_cell,float(result.get("duration_minutes",0.0)),before,after,{"posture":resident_state.posture,"posture_target":resident_state.posture_target_id,"held_item":resident_state.held_item_id,"time_of_day":clock.snapshot().get("hour",0)},str(result.get("result","completed")))
+	var event:=LifeEvent.activity_completed(clock.text(),id,target,activity_executor.started_cell,float(result.get("duration_minutes",0.0)),before,after,{"posture":resident_state.posture,"posture_target":resident_state.posture_target_id,"held_item":resident_state.held_item_id,"time_of_day":clock.snapshot().get("hour",0),"relationship_outcome":relationship_outcome,"cash":finance.cash},relationship_outcome if relationship_outcome!="" else str(result.get("result","completed")))
 	event["time_hour"]=int(clock.snapshot().get("hour",0)); event["salience"]=clamp(0.35+abs(improvement)/100.0,0.35,0.9)
 	preferences.record_life_event(event)
 	recent_activity_history.push_front(id)
@@ -221,6 +244,10 @@ func _finish_activity()->void:
 	if id=="drink":
 		diagnostics.drink_completed=int(diagnostics.get("drink_completed",0))+1; diagnostics.last_drink_result={"before_thirst":before.get("thirst",0.0),"after_thirst":after.get("thirst",0.0),"target":target}; diagnostics.last_successful_drink_time=clock.text()
 	if id=="use_toilet": diagnostics.toilet_completed=int(diagnostics.get("toilet_completed",0))+1
+	if id=="remote_work":diagnostics.work_completed=int(diagnostics.get("work_completed",0))+1
+	if id=="masturbate":diagnostics.masturbation_completed=int(diagnostics.get("masturbation_completed",0))+1
+	if id=="invite_for_sex":diagnostics.partner_invitations=int(diagnostics.get("partner_invitations",0))+1;diagnostics["partner_accepted" if relationship_outcome=="accepted" else "partner_declined"]=int(diagnostics.get("partner_accepted" if relationship_outcome=="accepted" else "partner_declined",0))+1
+	if id=="sex":diagnostics.sex_completed=int(diagnostics.get("sex_completed",0))+1
 	_record_history("activity_completed",id,target,reason)
 	DecisionLogger.append({"time":clock.text(),"action":id,"activity":id,"target":target,"reason":reason,"retrieved_memories":last_retrieved_memory_ids,"goals":goal_store.active_texts(),"latency_ms":last_latency_ms,"validation":"valid","result":"completed"})
 	_complete_plan_step(result)
@@ -300,13 +327,14 @@ func _life_feed_text(event:String,action:String,target:String)->String:
 	return action
 
 func _observer_feed_text(event:String,action:String,target:String,why:String)->String:
-	if event in ["preference_transition","habit_transition","skill_learned"]: return "%s — %s" % [clock.text(),why]
+	var time_text:=ObserverText.time_label(clock.text(),str(clock.snapshot().get("period",""))).replace("　朝","").replace("　昼","").replace("　夕方","").replace("　夜","")
+	if action.begins_with("plan_") or action=="": return "%s　次にすることを考えた" % time_text
+	if event in ["preference_transition","habit_transition","skill_learned"]: return "%s　暮らし方に小さな変化があった" % time_text
 	if event=="activity_completed":
-		var label:=str(ActivityCatalog.get_definition(action).get("activity_label",action))
-		return "%s — Finished %s%s." % [clock.text(),label," near "+target if target!="" else ""]
-	if event=="interrupted": return "%s — Stopped %s." % [clock.text(),action]
-	if event=="plan_started": return "%s — %s" % [clock.text(),why.left(120)]
-	return "%s — The resident is %s." % [clock.text(),action]
+		return "%s　%s" % [time_text,ObserverText.activity_completed_label(action)]
+	if event=="interrupted": return "%s　%sを途中でやめた" % [time_text,ObserverText.activity_noun(action)]
+	if event=="plan_started": return "%s　%sを始めようとしている" % [time_text,ObserverText.activity_noun(action)]
+	return "%s　%s" % [time_text,ObserverText.activity_label(action)]
 
 func _memory_topics(strong_needs:Array)->Array:
 	var topics:Array=[]
@@ -355,6 +383,8 @@ func _save_game() -> void:
 		"plan_history":plan_history.serialize(),
 		"skills":skill_store.serialize(),
 		"diagnostics":diagnostics,
+		"finance":finance.serialize(),
+		"relationships":relationships.serialize(),
 		"resident_position":[resident_state.render_position.x,resident_state.render_position.y]
 	})
 	save_status = "Saved" if saved else "Save failed"
@@ -382,6 +412,7 @@ func _load_game() -> void:
 	resident_state.load_state(data.get("resident_state",{})); resident_state.render_position=_cell_to_position(resident_state.current_cell)
 	plan_history.load_state(data.get("plan_history",[]))
 	skill_store.load_state(data.get("skills",{}))
+	finance.load_state(data.get("finance",{}));relationships.load_state(data.get("relationships",{}))
 	room_state.repair_integrity(resident_state)
 	var loaded_diagnostics=data.get("diagnostics",{})
 	if loaded_diagnostics is Dictionary:
@@ -402,21 +433,26 @@ func _add_room_art() -> void:
 
 func _build_ui() -> void:
 	labels["time"] = _label(Vector2(920,20),"",23)
-	labels["action"] = _label(Vector2(920,56),"",18)
-	labels["reason"] = _label(Vector2(920,88),"",14); labels["reason"].size = Vector2(345,62)
-	labels["panel"] = _label(Vector2(920,155),"",13); labels["panel"].size = Vector2(345,345)
-	labels["history"] = _label(Vector2(920,505),"",12); labels["history"].size = Vector2(345,125)
-	labels["connection"] = _label(Vector2(920,130),"",13)
-	progress_bar = ProgressBar.new(); progress_bar.position=Vector2(920,430); progress_bar.size=Vector2(345,22); progress_bar.visible=false; add_child(progress_bar)
-	var save := Button.new(); save.text = "保存"; save.position = Vector2(920,660); save.pressed.connect(_save_game); add_child(save)
-	var pause := Button.new(); pause.text = "一時停止"; pause.position = Vector2(985,660); pause.pressed.connect(func(): speed = 0.0 if speed > 0.0 else 1.0); add_child(pause)
-	var speeds := OptionButton.new(); speeds.position = Vector2(1060,660)
+	labels["action"] = _label(Vector2(920,57),"",17); labels["action"].size = Vector2(345,45); labels["action"].autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; labels["action"].clip_text=true
+	labels["reason"] = _label(Vector2(920,105),"",12); labels["reason"].size = Vector2(345,38); labels["reason"].autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; labels["reason"].clip_text=true
+	labels["connection"] = _label(Vector2(920,150),"",13)
+	labels["right_current"] = _label(Vector2(920,180),"",12); labels["right_current"].size = Vector2(345,36); labels["right_current"].clip_text=true
+	labels["right_needs"] = _label(Vector2(920,216),"",10); labels["right_needs"].size = Vector2(345,105); labels["right_needs"].clip_text=true
+	labels["right_room"] = _label(Vector2(920,321),"",11); labels["right_room"].size = Vector2(345,42); labels["right_room"].clip_text=true
+	labels["right_life"] = _label(Vector2(920,363),"",11); labels["right_life"].size = Vector2(345,42); labels["right_life"].clip_text=true
+	labels["right_relationships"] = _label(Vector2(920,405),"",11); labels["right_relationships"].size = Vector2(345,48); labels["right_relationships"].clip_text=true
+	progress_bar = ProgressBar.new(); progress_bar.position=Vector2(920,490); progress_bar.size=Vector2(345,18); progress_bar.visible=false; add_child(progress_bar)
+	life_feed_label=_label(Vector2(40,548),"",11); life_feed_label.size=Vector2(830,95); life_feed_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; life_feed_label.clip_text=true
+	personality_label=_label(Vector2(895,548),"",11); personality_label.size=Vector2(360,95); personality_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; personality_label.clip_text=true
+	var save := Button.new(); save.text = "保存"; save.position = Vector2(900,652); save.pressed.connect(_save_game); add_child(save)
+	var pause := Button.new(); pause.text = "一時停止"; pause.position = Vector2(955,652); pause.pressed.connect(func(): speed = 0.0 if speed > 0.0 else 1.0); add_child(pause)
+	var speeds := OptionButton.new(); speeds.position = Vector2(1035,652)
 	for x in [1,2,4,8]: speeds.add_item("%sx" % x)
 	speeds.item_selected.connect(func(i): speed = pow(2.0,i)); add_child(speeds)
-	var debug_button := Button.new(); debug_button.text = "デバッグ"; debug_button.position = Vector2(1160,660); debug_button.pressed.connect(_toggle_debug); add_child(debug_button)
-	var diary_button := Button.new(); diary_button.text = "日記"; diary_button.position = Vector2(920,690); diary_button.pressed.connect(_show_diary); add_child(diary_button)
-	var settings_button := Button.new(); settings_button.text = "設定"; settings_button.position = Vector2(985,690); settings_button.pressed.connect(_show_settings); add_child(settings_button)
-	var reset_button := Button.new(); reset_button.text = "新しい生活"; reset_button.position = Vector2(1070,690); reset_button.pressed.connect(_confirm_reset); add_child(reset_button)
+	var debug_button := Button.new(); debug_button.text = "デバッグ"; debug_button.position = Vector2(1140,652); debug_button.pressed.connect(_toggle_debug); add_child(debug_button)
+	var diary_button := Button.new(); diary_button.text = "日記"; diary_button.position = Vector2(900,685); diary_button.pressed.connect(_show_diary); add_child(diary_button)
+	var settings_button := Button.new(); settings_button.text = "設定"; settings_button.position = Vector2(955,685); settings_button.pressed.connect(_show_settings); add_child(settings_button)
+	var reset_button := Button.new(); reset_button.text = "新しい生活"; reset_button.position = Vector2(1010,685); reset_button.pressed.connect(_confirm_reset); add_child(reset_button)
 	debug_panel = Panel.new(); debug_panel.position = Vector2(35,35); debug_panel.size = Vector2(835,610); debug_panel.visible = false; debug_panel.z_index = 20; add_child(debug_panel)
 	debug_label = Label.new(); debug_label.position = Vector2(14,14); debug_label.size = Vector2(805,575); debug_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; debug_label.add_theme_font_size_override("font_size",12); debug_panel.add_child(debug_label)
 
@@ -424,81 +460,137 @@ func _toggle_debug() -> void:
 	debug_panel.visible = not debug_panel.visible
 
 func _label(pos: Vector2, text: String, font_size: int) -> Label:
-	var label := Label.new(); label.position = pos; label.text = text; label.add_theme_font_size_override("font_size",font_size); add_child(label); return label
+	var label := Label.new(); label.position = pos; label.text = text; label.add_theme_font_size_override("font_size",font_size); label.add_theme_color_override("font_color",Color("#382f2a")); add_child(label); return label
 
 func _update_ui() -> void:
 	if not labels.has("time"): return
 	labels["time"].text = ObserverText.time_label(clock.text(),str(clock.snapshot().get("period","")))
-	labels["action"].text = "現在：%s（%s）" % [ObserverText.activity_label(activity_executor.activity_id if activity_executor.activity_id != "" else "wait"),ObserverText.status_label(status)]
-	labels["reason"].text = "公開された理由：" + (intention if intention!="" else reason)
-	labels["connection"].text = ObserverText.connection_label(llm_status) + "　" + ("自動保存" if save_status.to_lower().contains("auto-save") else "保存済み")
+	var current_activity := ObserverText.activity_label(activity_executor.activity_id if activity_executor.activity_id != "" else "wait")
+	labels["action"].text = "現在\n%s\n状態：%s" % [current_activity,ObserverText.status_label(status)]
+	labels["reason"].text = "公開された理由：" + ObserverText.public_reason(intention if intention!="" else reason)
+	labels["connection"].text = ObserverText.connection_label(llm_status) + "　" + _save_status_label()
 	if progress_bar != null:
-		progress_bar.visible = activity_executor.is_active()
+		progress_bar.visible = activity_executor.is_active() and activity_executor.activity_id != ""
 		var definition:=ActivityCatalog.get_definition(activity_executor.activity_id)
 		progress_bar.max_value=float(definition.get("duration_minutes",1)); progress_bar.value=progress_bar.max_value-activity_executor.remaining_minutes
-	var text := "この人の状態\n"
-	for key in needs_model.values: text += "%s：%s\n" % [ObserverText.need_label(key),ObserverText.need_state(float(needs_model.values[key]))]
-	text += "\n部屋：%s　食料%d　水%d　ゴミ%d\n" % ["きれい" if room_state.cleanliness>=60 else "少し散らかっている",room_state.item_quantity("simple_food"),int(room_state.resources.get("water",0)),int(room_state.resources.get("trash",0))]
-	text += "\n目標\n" + ("まだない\n" if goal_store.active_texts().is_empty() else "\n".join(goal_store.active_texts()) + "\n")
-	text += "\nこの人の好み\n"
+	labels["right_current"].text = "現在\n現在：%s" % current_activity
+	var need_lines: Array[String] = []
+	for key in needs_model.values: need_lines.append("%s：%s" % [ObserverText.need_label(key),ObserverText.need_state(float(needs_model.values[key]))])
+	var needs_text := "今の状態\n"
+	for i in range(0, need_lines.size(), 2):
+		needs_text += need_lines[i]
+		if i + 1 < need_lines.size(): needs_text += "　" + need_lines[i + 1]
+		needs_text += "\n"
+	labels["right_needs"].text = needs_text
+	labels["right_room"].text = "部屋\n清潔さ：%s　食料：%s　ゴミ：%s" % ["きれい" if room_state.cleanliness>=60 else "少し散らかっている",ObserverText.resource_quality(room_state.item_quantity("simple_food")),ObserverText.trash_quality(int(room_state.resources.get("trash",0)))]
+	labels["right_life"].text = "生活\n所持金：%d円　次の支払い：約%.1f時間後" % [finance.cash,max(0.0,finance.next_fixed_expense_time-clock.total_minutes)/60.0]
+	labels["right_relationships"].text = "人間関係\n恋人：%s　友人：%s　元恋人：%s" % [_relationship_quality(int(relationships.contacts.girlfriend_01.relationship)),_relationship_quality(int(relationships.contacts.friend_01.relationship)),_relationship_quality(int(relationships.contacts.ex_01.relationship))]
 	var pref_summary := preferences.summary()
-	for key in pref_summary: text += "%s：%s\n" % [ObserverText.PREFS.get(key,key),"少し好む" if float(pref_summary[key])>0.15 else ("少し避ける" if float(pref_summary[key])<-0.15 else "まだわからない")]
 	var habit_lines:Array=[]
 	for habit in habit_store.summary(): habit_lines.append(ObserverText.habit_label(str(habit)))
-	text += "\nこの人らしさ\n" + ("まだわからない\n" if habit_lines.is_empty() else "\n".join(habit_lines)+"\n")
 	var skill_names:Array=[]
 	for skill in skill_store.skills.slice(0,min(5,skill_store.skills.size())): skill_names.append(ObserverText.skill_label(skill))
-	text += "\n身についたこと\n" + ("まだない\n" if skill_names.is_empty() else "\n".join(skill_names)+"\n")
-	text += "\n姿勢：%s\n持っているもの：%s" % ["横になっている" if resident_state.posture=="lying" else ("座っている" if resident_state.posture=="sitting" else "立っている"),ObserverText.object_label(resident_state.held_item_id) if resident_state.held_item_id!="" else "なし"]
-	labels["panel"].text = text
-	var history_text := "RECENT\n"
-	for item in decision_history.slice(0,min(12,decision_history.size())):
-		history_text += "%s\n" % str(item.get("observer_text",item.get("text",item.get("action",""))))
-	labels["history"].text = history_text.replace("RECENT","最近の出来事")
+	var history_text := "最近の出来事\n"
+	for item in decision_history.slice(0,min(5,decision_history.size())):
+		history_text += "%s\n" % _observer_feed_text(str(item.get("event",item.get("action",""))),str(item.get("action","")),str(item.get("target","")),str(item.get("reason",item.get("text",""))))
+	if life_feed_label != null: life_feed_label.text=history_text.left(1050)
+	var personality:="この人らしさ / 身についたこと\n"
+	var shown_preferences:=0
+	for key in pref_summary:
+		if abs(float(pref_summary[key]))<0.15: continue
+		personality += "・%sを%s\n" % [ObserverText.PREFS.get(key,"ある行動"),"少し好む" if float(pref_summary[key])>0.0 else "少し避ける"]
+		shown_preferences+=1
+		if shown_preferences>=2: break
+	for line in habit_lines.slice(0,2): personality += "・%s\n" % line
+	for line in skill_names.slice(0,1): personality += "・%s\n" % line
+	if habit_lines.is_empty() and skill_names.is_empty(): personality += "・暮らしの傾向を観察中"
+	if personality_label != null: personality_label.text=personality
 	if debug_panel != null and debug_panel.visible:
 		var debug_text := "STATUS: %s\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
 		debug_label.text = debug_text
 
+func _relationship_quality(value:int)->String:
+	if value>=70:return "良好"
+	if value>=45:return "普通"
+	return "距離がある"
+
+func _save_status_label() -> String:
+	match save_status:
+		"Auto-save on": return "自動保存"
+		"Saved": return "保存済み"
+		"Save failed": return "保存失敗"
+		"Auto-save off": return "自動保存オフ"
+		_: return save_status
+
 func _draw() -> void:
 	var period:=str(clock.snapshot().get("period","day")); var base:=Color("#d8c3a5") if period!="night" else Color("#46516b")
-	draw_rect(Rect2(0,0,900,720),base)
-	draw_rect(Rect2(38,38,824,600),Color("#efe1c7") if period!="night" else Color("#303a55"))
-	for x in range(50,850,60): draw_line(Vector2(x,70),Vector2(x,620),Color(0.2,0.15,0.1,0.08),1)
-	for y in range(70,630,60): draw_line(Vector2(50,y),Vector2(850,y),Color(0.2,0.15,0.1,0.08),1)
+	draw_rect(Rect2(0,0,900,530),base)
+	draw_rect(Rect2(32,28,836,484),Color("#efe1c7") if period!="night" else Color("#303a55"))
+	draw_rect(Rect2(900,8,375,512),Color("#fbf6eb"),true)
+	draw_rect(Rect2(28,530,850,132),Color("#f4ead7"),true)
+	draw_rect(Rect2(880,530,395,132),Color("#f4ead7"),true)
+	draw_line(Vector2(900,8),Vector2(900,720),Color("#8c7968"),2)
+	for x in range(50,850,52): draw_line(Vector2(x,48),Vector2(x,505),Color(0.2,0.15,0.1,0.06),1)
+	for y in range(48,506,52): draw_line(Vector2(50,y),Vector2(850,y),Color(0.2,0.15,0.1,0.06),1)
 	for id in room_state.objects:
 		var object:Dictionary=room_state.objects[id]; var p:Vector2=object.position
 		if object.has("origin_cell"): p=RoomVisualAdapter.cell_to_position(object.origin_cell)
-		var region:=RoomVisualAdapter.atlas_region(str(id))
-		if furniture_atlas != null and region.size != Vector2.ZERO:
-			var visual_size:=Vector2(58,48)
-			if str(id) in ["bed","desk","bookshelf","tv","shower"]: visual_size=Vector2(82,62)
-			draw_texture_rect_region(furniture_atlas,Rect2(p-visual_size*0.5,visual_size),region)
-			continue
-		var furniture_color:=Color("#9b6b4f") if not bool(object.get("movable",false)) else Color("#c78f6b")
-		draw_rect(Rect2(p-Vector2(24,18),Vector2(48,36)),furniture_color)
-		draw_string(ThemeDB.fallback_font,p+Vector2(-22,5),ObserverText.object_label(str(id)),HORIZONTAL_ALIGNMENT_LEFT,48,11,Color("#fff8e7"))
+		_draw_furniture(str(id),p)
 	var render_position:=resident_state.render_position
 	var activity:=activity_executor.activity_id
 	var frame:=int(Time.get_ticks_msec()/350)%2
 	var resident_region:=ResidentVisualAdapter.region_for(activity,status,resident_state.posture,frame)
-	if resident_atlas != null:
+	var active_resident_texture:=resident_supplemental_atlas if ResidentVisualAdapter.uses_supplemental(activity) else resident_atlas
+	if ResidentVisualAdapter.uses_supplemental(activity): resident_region=ResidentVisualAdapter.supplemental_region(activity)
+	if active_resident_texture != null:
 		var bob:=Vector2(0,sin(float(Time.get_ticks_msec())/450.0)*1.5) if activity=="" and status=="idle" else Vector2.ZERO
-		draw_texture_rect_region(resident_atlas,Rect2(render_position-Vector2(34,48)+ResidentVisualAdapter.offset_for(activity)+bob,Vector2(68,86)),resident_region)
+		draw_texture_rect_region(active_resident_texture,Rect2(render_position-Vector2(34,48)+ResidentVisualAdapter.offset_for(activity)+bob,Vector2(68,86)),resident_region)
 	else:
 		draw_circle(render_position,24,Color("#4fc3f7"))
-	var held_label:=ResidentVisualAdapter.held_prop(resident_state.held_item_id,activity)
-	if held_label!="": draw_string(ThemeDB.fallback_font,render_position+Vector2(30,-10),held_label,HORIZONTAL_ALIGNMENT_LEFT,-1,11,Color("#fff3c4"))
 	if status in ["acting","moving"]: draw_circle(render_position+Vector2(0,-54),5,Color("#fff176"))
-	var activity_icon:=_activity_icon()
-	if activity_icon!="": draw_string(ThemeDB.fallback_font,render_position+Vector2(-8,-48),activity_icon,HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color("#fff59d"))
-	draw_string(ThemeDB.fallback_font,render_position+Vector2(-30,-32),"住人",HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("#102027"))
+
+func _draw_furniture(id:String,p:Vector2)->void:
+	var wood:=Color("#8b5e45"); var light:=Color("#d7b98e"); var metal:=Color("#a9b0ad"); var dark:=Color("#374247")
+	match id:
+		"bed":
+			draw_rect(Rect2(p-Vector2(44,22),Vector2(88,44)),wood); draw_rect(Rect2(p-Vector2(38,17),Vector2(76,31)),Color("#9fb0a2")); draw_rect(Rect2(p-Vector2(34,15),Vector2(24,12)),Color("#eee7d8"))
+		"desk":
+			draw_rect(Rect2(p-Vector2(42,18),Vector2(84,12)),wood); draw_line(p+Vector2(-34,-6),p+Vector2(-34,24),wood,6); draw_line(p+Vector2(34,-6),p+Vector2(34,24),wood,6)
+		"chair":
+			draw_rect(Rect2(p-Vector2(18,8),Vector2(36,20)),light); draw_rect(Rect2(p-Vector2(18,27),Vector2(36,19)),light); draw_line(p+Vector2(-14,12),p+Vector2(-14,27),wood,4); draw_line(p+Vector2(14,12),p+Vector2(14,27),wood,4)
+		"bookshelf":
+			draw_rect(Rect2(p-Vector2(28,34),Vector2(56,68)),wood); for y in [-15,5,25]: draw_line(p+Vector2(-23,y),p+Vector2(23,y),light,3)
+		"fridge":
+			draw_rect(Rect2(p-Vector2(25,35),Vector2(50,70)),Color("#d9d8cf")); draw_line(p+Vector2(-25,0),p+Vector2(25,0),metal,2); draw_line(p+Vector2(15,-25),p+Vector2(15,-8),dark,3)
+		"sink":
+			draw_rect(Rect2(p-Vector2(32,18),Vector2(64,42)),Color("#c7b9a5")); draw_rect(Rect2(p-Vector2(22,13),Vector2(44,15)),metal); draw_arc(p+Vector2(0,-12),10,PI,TAU,12,dark,3)
+		"pc":
+			draw_rect(Rect2(p-Vector2(27,25),Vector2(54,35)),dark); draw_rect(Rect2(p-Vector2(22,20),Vector2(44,25)),Color("#476a73")); draw_line(p+Vector2(0,10),p+Vector2(0,22),dark,4)
+		"tv":
+			draw_rect(Rect2(p-Vector2(38,27),Vector2(76,48)),dark); draw_rect(Rect2(p-Vector2(32,21),Vector2(64,36)),Color("#607d8b")); draw_line(p+Vector2(-12,23),p+Vector2(12,23),dark,5)
+		"window":
+			draw_rect(Rect2(p-Vector2(38,30),Vector2(76,60)),Color("#8eb7c7")); draw_line(p+Vector2(0,-30),p+Vector2(0,30),Color.WHITE,3); draw_line(p+Vector2(-38,0),p+Vector2(38,0),Color.WHITE,3)
+		"trash_bin":
+			draw_colored_polygon(PackedVector2Array([p+Vector2(-20,-18),p+Vector2(20,-18),p+Vector2(15,24),p+Vector2(-15,24)]),Color("#777a72")); draw_line(p+Vector2(-22,-20),p+Vector2(22,-20),dark,4)
+		"shower":
+			draw_rect(Rect2(p-Vector2(29,38),Vector2(58,76)),Color(0.65,0.82,0.86,0.45)); draw_line(p+Vector2(-29,-38),p+Vector2(-29,38),metal,3); draw_line(p+Vector2(29,-38),p+Vector2(29,38),metal,3); draw_arc(p+Vector2(12,-19),12,PI,TAU,12,dark,3)
+		"toilet":
+			draw_rect(Rect2(p-Vector2(18,30),Vector2(36,27)),Color("#e6e2d7")); draw_ellipse_fallback(p+Vector2(0,10),Vector2(27,18),Color("#eeeae0"))
+		_:
+			draw_rect(Rect2(p-Vector2(24,18),Vector2(48,36)),wood)
+
+func draw_ellipse_fallback(center:Vector2,radius:Vector2,color:Color)->void:
+	var points:=PackedVector2Array()
+	for i in 24:
+		var angle:=TAU*float(i)/24.0; points.append(center+Vector2(cos(angle)*radius.x,sin(angle)*radius.y))
+	draw_colored_polygon(points,color)
 
 func _activity_text()->String:
 	if status=="moving":return "移動中"
 	if resident_state.posture=="lying":return "横になっている"
 	if resident_state.posture=="sitting":return "座っている"
 	if activity_executor.activity_id!="":return ObserverText.activity_label(activity_executor.activity_id)
-	if plan_executor.active:return "performing primitive"
+	if plan_executor.active:return "行動を準備中"
 	return "ぼんやりしている" if status=="idle" else status
 
 func _activity_icon()->String:

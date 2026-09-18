@@ -1,8 +1,8 @@
 class_name RoomVisualAdapter
 extends RefCounted
 
-const ORIGIN := Vector2(70,70)
-const CELL_SIZE := 60.0
+const ORIGIN := Vector2(70,64)
+const CELL_SIZE := 52.0
 const ATLAS_PATH := "res://assets/visual_v21/dollhouse_furniture_sheet.png"
 
 static func atlas_region(object_id:String)->Rect2:

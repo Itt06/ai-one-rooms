@@ -1,12 +1,12 @@
 class_name ObservationBuilder
 extends RefCounted
 
-static func build(clock: WorldClock, needs: ResidentNeeds, room: RoomState, position: Vector2, action: String, memories: Array, goals: Array, preferences: Dictionary, candidates: Array, habits := {}, resident := {}, available_skills := [], recent_behavior := {}) -> Dictionary:
+static func build(clock: WorldClock, needs: ResidentNeeds, room: RoomState, position: Vector2, action: String, memories: Array, goals: Array, preferences: Dictionary, candidates: Array, habits := {}, resident := {}, available_skills := [], recent_behavior := {}, life_context:Dictionary={}) -> Dictionary:
 	var need_states:Dictionary={}
 	for key in needs.values:
 		var value:=float(needs.values[key]); var threshold:=ActivityExecutor.CRITICAL_SLEEPINESS if key=="sleepiness" else ActivityExecutor.CRITICAL_THIRST if key=="thirst" else ActivityExecutor.CRITICAL_TOILET if key=="toilet_need" else ActivityExecutor.CRITICAL_DISCOMFORT if key=="discomfort" else 100.1
 		need_states[key]="critical" if value>=threshold else ("elevated" if value>=70.0 else "ordinary")
-	return {
+	var observation:={
 		"time": clock.snapshot(),
 		"self": {
 			"needs": needs.values.duplicate(true),
@@ -30,11 +30,15 @@ static func build(clock: WorldClock, needs: ResidentNeeds, room: RoomState, posi
 		"relevant_memories": memories.duplicate(true),
 		"learned_preferences": preferences.duplicate(true),
 		"habits": habits.duplicate(true) if habits is Dictionary else {},
-		"available_tools": PrimitiveToolCatalog.available(room,resident),
+		"available_tools": PrimitiveToolCatalog.available(room,resident,life_context),
 		"available_skills": available_skills,
 		"recent_behavior": recent_behavior,
 		"grid": {"size":[RoomGrid.WIDTH,RoomGrid.HEIGHT],"zones":{"center":"central open floor","bed_area":"resting area","desk_area":"work area","window_side":"window side","bathroom_area":"washroom","kitchen_area":"kitchen"}}
 	}
+	if life_context.has("finances"):observation["finances"]=life_context.finances
+	if life_context.has("relationships"):observation["relationships"]=life_context.relationships
+	if life_context.has("sexual_partner_options"):observation["sexual_partner_options"]=life_context.sexual_partner_options
+	return observation
 
 static func _position_label(position: Vector2, room: RoomState) -> String:
 	var best_id := "room"

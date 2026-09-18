@@ -3,6 +3,9 @@ extends RefCounted
 
 var path:Array=[]
 var path_index:=0
+static func prepare_posture(state:ResidentState)->void:
+	state.posture="standing"
+	state.posture_target_id=""
 func begin(grid:RoomGrid,start:Vector2i,destination:Vector2i,blocked:Array)->bool:
 	path=grid.find_path(start,destination,blocked); path_index=1; return not path.is_empty()
 func update(state:ResidentState,delta:float,speed:float)->bool:

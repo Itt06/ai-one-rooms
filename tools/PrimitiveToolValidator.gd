@@ -9,7 +9,7 @@ static func validate(step, room:RoomState, grid:RoomGrid, resident:Dictionary, i
 	for key in args: if not definition.args_schema.has(key):return _fail("unknown_argument")
 	for key in definition.args_schema: if not args.has(key):return _fail("missing_argument")
 	if definition.target=="none" and not args.is_empty():return _fail("arguments_not_allowed")
-	if definition.target in ["object","item"] and target=="":return _fail("target_required_in_args")
+	if definition.target in ["object","item","contact"] and target=="":return _fail("target_required_in_args")
 	if definition.target=="object" and not room.objects.has(target):return _fail("target_not_found")
 	if definition.target=="item" and not items.has(target):return _fail("item_not_found")
 	if tool=="move_to":
@@ -38,7 +38,7 @@ static func validate(step, room:RoomState, grid:RoomGrid, resident:Dictionary, i
 		var container:=str(items[target].get("container",""))
 		if room.objects.has(container) and not InteractionResolver.is_at_interaction_cell(room,container,resident.current_cell):return _fail("item_requires_proximity_to_%s"%container)
 		if room.objects.has(container) and container=="fridge" and not bool(room.objects[container].get("state",false)):return _fail("fridge_closed")
-	if tool in ["use_pc","watch_tv","order_groceries"] and target in ["pc","tv"] and not bool(room.objects[target].get("state",false)):return _fail("target_is_off")
+	if tool in ["use_pc","watch_tv","order_groceries","remote_work"] and target in ["pc","tv"] and not bool(room.objects[target].get("state",false)):return _fail("target_is_off")
 	if tool=="put_down":
 		if resident.get("held_item_id","")!=target or not _integer_number(args.x) or not _integer_number(args.y):return _fail("invalid_drop_args")
 		var drop:=Vector2i(int(args.x),int(args.y)); if not grid.is_inside(drop) or drop in room.blocked_cells() or drop==resident.current_cell:return _fail("drop_cell_blocked")
