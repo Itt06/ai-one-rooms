@@ -2,6 +2,9 @@ class_name ObservationBuilder
 extends RefCounted
 
 static func build(clock: WorldClock, needs: ResidentNeeds, room: RoomState, position: Vector2, action: String, memories: Array, goals: Array, preferences: Dictionary, candidates: Array, habits := {}, resident := {}, available_skills := [], recent_behavior := {}) -> Dictionary:
+	var need_states:Dictionary={}
+	for key in needs.values:
+		var value:=float(needs.values[key]); need_states[key]="critical" if value>=90.0 else ("elevated" if value>=70.0 else "ordinary")
 	return {
 		"time": clock.snapshot(),
 		"self": {
@@ -20,6 +23,7 @@ static func build(clock: WorldClock, needs: ResidentNeeds, room: RoomState, posi
 		},
 		"visible_objects": room.visible_objects(),
 		"resources": room.resources.duplicate(true),
+		"need_states": need_states,
 		"items": room.items.values().duplicate(true),
 		"active_goals": goals.duplicate(true),
 		"relevant_memories": memories.duplicate(true),
