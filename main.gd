@@ -468,23 +468,23 @@ func _update_ui() -> void:
 	var current_activity := ObserverText.activity_label(activity_executor.activity_id if activity_executor.activity_id != "" else "wait")
 	labels["action"].text = "現在\n%s\n状態：%s" % [current_activity,ObserverText.status_label(status)]
 	labels["reason"].text = "公開された理由：" + ObserverText.public_reason(intention if intention!="" else reason)
-	labels["connection"].text = ObserverText.connection_label(llm_status) + "　" + ("自動保存" if save_status.to_lower().contains("auto-save") else "保存済み")
+	labels["connection"].text = ObserverText.connection_label(llm_status) + "　" + _save_status_label()
 	if progress_bar != null:
 		progress_bar.visible = activity_executor.is_active() and activity_executor.activity_id != ""
 		var definition:=ActivityCatalog.get_definition(activity_executor.activity_id)
 		progress_bar.max_value=float(definition.get("duration_minutes",1)); progress_bar.value=progress_bar.max_value-activity_executor.remaining_minutes
-	labels["right_current"].text = "CURRENT\n現在：%s" % current_activity
+	labels["right_current"].text = "現在\n現在：%s" % current_activity
 	var need_lines: Array[String] = []
 	for key in needs_model.values: need_lines.append("%s：%s" % [ObserverText.need_label(key),ObserverText.need_state(float(needs_model.values[key]))])
-	var needs_text := "CURRENT CONDITION\n"
+	var needs_text := "今の状態\n"
 	for i in range(0, need_lines.size(), 2):
 		needs_text += need_lines[i]
 		if i + 1 < need_lines.size(): needs_text += "　" + need_lines[i + 1]
 		needs_text += "\n"
 	labels["right_needs"].text = needs_text
-	labels["right_room"].text = "ROOM\n清潔さ：%s　食料：%s　ゴミ：%s" % ["きれい" if room_state.cleanliness>=60 else "少し散らかっている",ObserverText.resource_quality(room_state.item_quantity("simple_food")),ObserverText.trash_quality(int(room_state.resources.get("trash",0)))]
-	labels["right_life"].text = "LIFE / FINANCE\n所持金：%d円　次の支払い：約%.1f時間後" % [finance.cash,max(0.0,finance.next_fixed_expense_time-clock.total_minutes)/60.0]
-	labels["right_relationships"].text = "RELATIONSHIPS\n恋人：%s　友人：%s　元恋人：%s" % [_relationship_quality(int(relationships.contacts.girlfriend_01.relationship)),_relationship_quality(int(relationships.contacts.friend_01.relationship)),_relationship_quality(int(relationships.contacts.ex_01.relationship))]
+	labels["right_room"].text = "部屋\n清潔さ：%s　食料：%s　ゴミ：%s" % ["きれい" if room_state.cleanliness>=60 else "少し散らかっている",ObserverText.resource_quality(room_state.item_quantity("simple_food")),ObserverText.trash_quality(int(room_state.resources.get("trash",0)))]
+	labels["right_life"].text = "生活\n所持金：%d円　次の支払い：約%.1f時間後" % [finance.cash,max(0.0,finance.next_fixed_expense_time-clock.total_minutes)/60.0]
+	labels["right_relationships"].text = "人間関係\n恋人：%s　友人：%s　元恋人：%s" % [_relationship_quality(int(relationships.contacts.girlfriend_01.relationship)),_relationship_quality(int(relationships.contacts.friend_01.relationship)),_relationship_quality(int(relationships.contacts.ex_01.relationship))]
 	var pref_summary := preferences.summary()
 	var habit_lines:Array=[]
 	for habit in habit_store.summary(): habit_lines.append(ObserverText.habit_label(str(habit)))
@@ -513,6 +513,14 @@ func _relationship_quality(value:int)->String:
 	if value>=70:return "良好"
 	if value>=45:return "普通"
 	return "距離がある"
+
+func _save_status_label() -> String:
+	match save_status:
+		"Auto-save on": return "自動保存"
+		"Saved": return "保存済み"
+		"Save failed": return "保存失敗"
+		"Auto-save off": return "自動保存オフ"
+		_: return save_status
 
 func _draw() -> void:
 	var period:=str(clock.snapshot().get("period","day")); var base:=Color("#d8c3a5") if period!="night" else Color("#46516b")
