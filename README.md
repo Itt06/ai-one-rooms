@@ -173,3 +173,8 @@ The save format is currently version 5. Existing v1.1 saves are migrated conserv
 V2 observer presentation keeps technical validation in the debug panel while the normal life feed shows completed activities and verified preference, habit, and skill transitions. Diary entries are generated deterministically from completed activity state; no additional LLM request is used.
 
 Activity execution is restored as idle after loading a save; persistent world and resident state are retained safely.
+# Japanese-first observer presentation
+
+The v2.1 observer presentation is Japanese-first: the room is presented as a small dollhouse, while the Resident's needs, activities, diary, preferences, and life feed are described in plain Japanese. Technical JSON, validation, and LLM diagnostics remain available in the collapsible debug panel.
+
+Generated presentation source art is kept in `assets/visual_v21/`; runtime room visuals remain derived from authoritative world state, so the art layer cannot mutate simulation truth.

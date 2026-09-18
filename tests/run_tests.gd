@@ -50,7 +50,7 @@ func _test_habit_periods() -> void:
 
 func _test_v20_observer_data() -> void:
 	var diary:=DiaryComposer.compose("Day 2 21:00","read",{"boredom":70.0},{"boredom":35.0})
-	_check(diary.contains("reading") and diary.contains("eased"), "diary composer should describe a real completed change")
+	_check(diary.contains("本を読んでいる") and diary.contains("退屈"), "diary composer should describe a real completed change")
 	var memory:=MemoryStore.new(); memory.add("Day 1","sleep","I slept near the bed.","completed",0.4,["bed"],{"sleepiness":-60})
 	memory.add("Day 2","wait","I waited.","completed",0.9,["window"],{})
 	var ranked:=memory.retrieve([],[],1,"",["sleepiness"], ["bed","sleep"])
