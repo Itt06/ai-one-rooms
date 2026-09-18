@@ -11,8 +11,23 @@ static func need_state(value:float)->String:
 	if value>=85.0: return "かなり強い"
 	if value>=60.0: return "少し気になる"
 	return "落ち着いている"
+static func resource_quality(value:int)->String:
+	if value<=0: return "ない"
+	if value<=2: return "ほとんどない"
+	if value<=4: return "少ない"
+	return "十分"
+static func trash_quality(value:int)->String:
+	if value<=0: return "なし"
+	if value<=2: return "少ない"
+	if value<=5: return "増えてきた"
+	return "多い"
 static func status_label(value:String)->String:
 	return {"thinking":"考え中","moving":"移動中","acting":"行動中","idle":"休んでいる","starting":"始めようとしている","running":"行動中"}.get(value,value)
+static func public_reason(value:String)->String:
+	if value=="": return "住人が自分で選んだ行動です。"
+	for character in value:
+		if character.to_ascii_buffer().size()>0 and character.to_ascii_buffer()[0] >= 65 and character.to_ascii_buffer()[0] <= 122: return "住人が自分で選んだ行動です。"
+	return value.left(120)
 static func connection_label(value:String)->String:
 	if value.to_lower().contains("offline"): return "AI 未接続"
 	if value.to_lower().contains("connected"): return "AI 接続中"
