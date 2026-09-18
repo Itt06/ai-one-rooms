@@ -6,10 +6,13 @@ var counts: Dictionary = {}
 var recent_actions: Array = []
 var sleep_hours: Array = []
 var target_counts: Dictionary = {}
+var last_transition := ""
 
 func record(action: String, improvement: float, hour := -1) -> void:
+	var before_value:=float(values.get(action,0.0))
 	counts[action] = int(counts.get(action, 0)) + 1
 	values[action] = clamp(float(values.get(action, 0.0)) + improvement, -1.0, 1.0)
+	if abs(before_value)<0.1 and abs(float(values[action]))>=0.1: last_transition="%s is becoming a preference" % action.replace("_"," ")
 	recent_actions.push_front(action)
 	if recent_actions.size() > 12:
 		recent_actions.resize(12)
@@ -57,6 +60,7 @@ func load_state(data) -> void:
 	recent_actions = []
 	sleep_hours = []
 	target_counts = {}
+	last_transition = ""
 	if not (data is Dictionary):
 		return
 	var loaded_values = data.get("values", {})

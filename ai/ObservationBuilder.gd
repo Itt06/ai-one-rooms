@@ -30,7 +30,6 @@ static func build(clock: WorldClock, needs: ResidentNeeds, room: RoomState, posi
 		"relevant_memories": memories.duplicate(true),
 		"learned_preferences": preferences.duplicate(true),
 		"habits": habits.duplicate(true) if habits is Dictionary else {},
-		"available_actions": candidates.duplicate(true),
 		"available_tools": PrimitiveToolCatalog.available(room,resident),
 		"available_skills": available_skills,
 		"recent_behavior": recent_behavior,

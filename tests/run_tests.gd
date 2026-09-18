@@ -19,6 +19,8 @@ func _initialize() -> void:
 	_test_timed_activity_lifecycle()
 	_test_skill_production_path()
 	_test_multiday_world_dynamics()
+	_test_habit_periods()
+	_test_v20_observer_data()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -40,6 +42,26 @@ func _test_needs() -> void:
 	_check(float(needs.values.get("toilet_need",0.0)) > toilet_before, "toilet need should increase with time")
 	needs.apply({"hunger":-999.0})
 	_check(float(needs.values.get("hunger",0.0)) == 0.0, "needs should clamp at zero")
+
+func _test_habit_periods() -> void:
+	var expected:Dictionary={0:"night",5:"night",6:"morning",11:"morning",12:"afternoon",17:"afternoon",18:"evening",21:"evening",22:"night",23:"night"}
+	for hour in expected:
+		_check(HabitStore.period_for_hour(int(hour))==expected[hour], "habit period mismatch at hour %d" % int(hour))
+
+func _test_v20_observer_data() -> void:
+	var diary:=DiaryComposer.compose("Day 2 21:00","read",{"boredom":70.0},{"boredom":35.0})
+	_check(diary.contains("reading") and diary.contains("eased"), "diary composer should describe a real completed change")
+	var memory:=MemoryStore.new(); memory.add("Day 1","sleep","I slept near the bed.","completed",0.4,["bed"],{"sleepiness":-60})
+	memory.add("Day 2","wait","I waited.","completed",0.9,["window"],{})
+	var ranked:=memory.retrieve([],[],1,"",["sleepiness"], ["bed","sleep"])
+	_check(str(ranked[0].get("related_action",""))=="sleep", "topic context should surface relevant sleep memory")
+	memory=MemoryStore.new(); memory.add("Day 1","read","Reading helped me relax.","completed",0.4,["bookshelf","book_01"],{"boredom":-20}); memory.add("Day 2","use_pc","I used the computer.","completed",0.9,["pc"],{})
+	ranked=memory.retrieve(["read","use_pc"],[],1,"",[],["bookshelf","book"])
+	_check(str(ranked[0].get("related_action",""))=="read", "held book and bookshelf topics should rank reading memory")
+	ranked=memory.retrieve(["read","use_pc"],[],1,"",[],[])
+	_check(str(ranked[0].get("related_action",""))=="use_pc", "without current topics, tool availability should only use related action scoring")
+	_check(ObserverContext.relevant_memory_note({"summary":"Reading helped me relax."}).begins_with("Relevant memory:"), "observer memory note must not claim causal decision use")
+	var observation:=ObservationBuilder.build(WorldClock.new(),ResidentNeeds.new(),RoomState.new(),Vector2.ZERO,"idle",[],[],{},[],{},{}); _check(not observation.has("available_actions") and observation.has("available_tools"), "obsolete available_actions contract should be absent")
 
 func _test_candidates_and_validation() -> void:
 	var room := RoomState.new()

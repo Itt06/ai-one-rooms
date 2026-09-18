@@ -100,11 +100,11 @@ func _request_decision() -> void:
 	for key in needs_model.values:
 		if float(needs_model.values.get(key,0.0)) >= 70.0:
 			strong_needs.append(str(key))
-	var memories := memory_store.retrieve(action_ids,goal_store.active_texts(),6,"",strong_needs)
+	var memories := memory_store.retrieve(action_ids,goal_store.active_texts(),6,"",strong_needs,_memory_topics(strong_needs))
 	last_retrieved_memory_ids = []
 	for memory in memories:
 		last_retrieved_memory_ids.append(str(memory.get("id","")))
-	var available_skills:=skill_store.relevant(room_state,resident_state.held_item_id,needs_model.values,resident_state)
+	var available_skills:=skill_store.relevant(room_state,resident_state.held_item_id,needs_model.values,resident_state,{"topics":_memory_topics(strong_needs),"strong_needs":strong_needs,"recent_actions":recent_activity_history.slice(0,6)})
 	var observation := ObservationBuilder.build(clock,needs_model,room_state,resident_state.render_position,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,{"habits":habit_store.summary()},{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},available_skills,_recent_behavior())
 	last_observation = JSON.stringify(observation)
 	status = "thinking"
@@ -137,7 +137,11 @@ func _accept_plan(plan:Array, why:String, updates:Dictionary, skill_id:String)->
 		for plan_step in plan:
 			if ActivityCatalog.DEFINITIONS.has(str(plan_step.get("tool",""))): has_activity=true; break
 		diagnostics["plans_with_activity" if has_activity else "primitive_only_plans"]+=1
-	reason=why if why!="" else "I am deciding what to do."; plan_executor.begin(plan,reason); diagnostics.plans_started+=1; status="acting"; _record_history("plan_started",plan_executor.plan_id,"",reason); _run_plan_step()
+	var public_reason:=why if why!="" else "I am deciding what to do."
+	if not last_retrieved_memory_ids.is_empty():
+		for memory in memory_store.entries:
+			if str(memory.get("id",""))==str(last_retrieved_memory_ids[0]): public_reason += " %s" % ObserverContext.relevant_memory_note(memory); break
+	reason=public_reason; plan_executor.begin(plan,reason); diagnostics.plans_started+=1; status="acting"; _record_history("plan_started",plan_executor.plan_id,"",reason); _run_plan_step()
 
 func _run_plan_step()->void:
 	if not plan_executor.active:return
@@ -178,14 +182,15 @@ func _complete_plan_step(result:Dictionary={"ok":true,"result":"completed"})->vo
 		diagnostics.plans_completed+=1
 		plan_history.add(plan_executor.plan_id,plan_executor.reason,plan_executor.plan,plan_executor.results,true,clock.text(),clock.text())
 		if current_skill_id!="": skill_store.mark_used(current_skill_id,true); diagnostics.skills_completed+=1
-		skill_store.learn(plan_history.entries,room_state)
+		var learned:=skill_store.learn(plan_history.entries,room_state)
+		for skill_id in learned: _record_history("skill_learned",skill_id,"","Learned a reusable routine.")
 		_record_history("plan_completed",plan_executor.plan_id,"",reason); status="idle"; decision_cooldown=0.5; _save_game()
 	else:
 		status="acting"; _run_plan_step()
 
 func _finish_activity()->void:
 	var id:=activity_executor.activity_id; var target:=activity_executor.target_id
-	var diary_text:=reason if id=="write_diary" else ""
+	var diary_text:=DiaryComposer.compose(clock.text(),id,activity_executor.before_needs,needs_model.values,str(recent_activity_history[0]) if not recent_activity_history.is_empty() else "",str(memory_store.entries[0].get("summary","")) if not memory_store.entries.is_empty() else "") if id=="write_diary" else ""
 	var result:=activity_executor.complete(room_state,needs_model,resident_state,diary_text)
 	if not bool(result.get("ok",false)): diagnostics.activities_failed+=1; _abort_plan(str(result.get("error","activity_failed"))); return
 	var before:Dictionary=result.get("before_needs",{}); var after:Dictionary=result.get("after_needs",{}); var improvement:=0.0
@@ -197,6 +202,8 @@ func _finish_activity()->void:
 	if recent_activity_history.size()>16: recent_activity_history.resize(16)
 	habit_store.record(event)
 	memory_store.add_life_event(event)
+	if preferences.last_transition!="": _record_history("preference_transition","","",preferences.last_transition); preferences.last_transition=""
+	if habit_store.last_transition!="": _record_history("habit_transition","","",habit_store.last_transition); habit_store.last_transition=""
 	if id=="write_diary":
 		diary.push_front({"time":clock.text(),"text":str(result.get("diary_text",diary_text)).left(500)})
 		if diary.size()>60:diary.resize(60)
@@ -278,7 +285,7 @@ func _memory_salience(before: Dictionary, after: Dictionary) -> float:
 	return clamp(0.35 + largest / 100.0,0.35,0.9)
 
 func _record_history(event: String, action: String, target: String, why: String) -> void:
-	decision_history.push_front({"time":clock.text(),"event":event,"action":action,"target":target,"reason":why,"text":_life_feed_text(event,action,target)})
+	decision_history.push_front({"time":clock.text(),"event":event,"action":action,"target":target,"reason":why,"text":_life_feed_text(event,action,target),"observer_text":_observer_feed_text(event,action,target,why)})
 	if decision_history.size() > 50: decision_history.resize(50)
 
 func _life_feed_text(event:String,action:String,target:String)->String:
@@ -287,6 +294,29 @@ func _life_feed_text(event:String,action:String,target:String)->String:
 	if event=="plan_started": return "Started moving or acting."
 	if event=="interrupted": return "Stopped %s."%action
 	return action
+
+func _observer_feed_text(event:String,action:String,target:String,why:String)->String:
+	if event in ["preference_transition","habit_transition","skill_learned"]: return "%s — %s" % [clock.text(),why]
+	if event=="activity_completed":
+		var label:=str(ActivityCatalog.get_definition(action).get("activity_label",action))
+		return "%s — Finished %s%s." % [clock.text(),label," near "+target if target!="" else ""]
+	if event=="interrupted": return "%s — Stopped %s." % [clock.text(),action]
+	if event=="plan_started": return "%s — %s" % [clock.text(),why.left(120)]
+	return "%s — The resident is %s." % [clock.text(),action]
+
+func _memory_topics(strong_needs:Array)->Array:
+	var topics:Array=[]
+	for id in room_state.objects:
+		if resident_state.current_cell in room_state.objects[id].get("interaction_cells",[]):
+			topics.append(str(id)); topics.append(str(room_state.objects[id].get("type",id)))
+	if resident_state.held_item_id!="": topics.append(resident_state.held_item_id)
+	for need in strong_needs: topics.append(str(need))
+	topics.append(str(clock.snapshot().get("period","")))
+	for goal in goal_store.active_texts():
+		for token in str(goal).to_lower().replace(","," ").split(" "):
+			if token.length()>=4: topics.append(token)
+	for recent in recent_activity_history.slice(0,2): topics.append(str(recent))
+	return topics.slice(0,min(10,topics.size()))
 
 func _recent_activity_count(activity:String)->int:
 	var count:=0
@@ -409,11 +439,15 @@ func _update_ui() -> void:
 	text += "\nPREFERENCES\n"
 	var pref_summary := preferences.summary()
 	for key in pref_summary: text += "%s: %.2f\n" % [key,float(pref_summary[key])]
+	text += "\nHABITS\n" + ("none\n" if habit_store.summary().is_empty() else "\n".join(habit_store.summary())+"\n")
+	var skill_names:Array=[]
+	for skill in skill_store.skills.slice(0,min(5,skill_store.skills.size())): skill_names.append(str(skill.get("name",skill.get("id",""))))
+	text += "\nSKILLS\n" + ("none\n" if skill_names.is_empty() else "\n".join(skill_names)+"\n")
 	text += "\nACTIVITY: %s\nCELL: [%d,%d]  POSTURE: %s\nHELD: %s\nLLM: %d ms" % [_activity_text(),resident_state.current_cell.x,resident_state.current_cell.y,resident_state.posture,resident_state.held_item_id if resident_state.held_item_id!="" else "none",last_latency_ms]
 	labels["panel"].text = text
 	var history_text := "RECENT\n"
-	for item in decision_history.slice(0,min(5,decision_history.size())):
-		history_text += "%s %s\n" % [str(item.get("time","")),str(item.get("text",item.get("action","")))]
+	for item in decision_history.slice(0,min(12,decision_history.size())):
+		history_text += "%s\n" % str(item.get("observer_text",item.get("text",item.get("action",""))))
 	labels["history"].text = history_text
 	if debug_panel != null and debug_panel.visible:
 		var debug_text := "STATUS: %s\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
@@ -427,12 +461,18 @@ func _draw() -> void:
 		if bool(object.get("movable",false)): draw_rect(Rect2(p-Vector2(18,18),Vector2(36,36)),Color("#bcaaa4")); draw_string(ThemeDB.fallback_font,p-Vector2(14,24),str(id),HORIZONTAL_ALIGNMENT_LEFT,-1,10,Color.WHITE)
 		else: draw_circle(p,8,Color("#8d6e63"))
 	var resident_color := Color("#90caf9") if status == "thinking" else Color("#4fc3f7")
+	if activity_executor.activity_id=="sleep": resident_color=Color("#7986cb")
+	elif activity_executor.activity_id in ["read","write_diary"]: resident_color=Color("#81c784")
+	elif activity_executor.activity_id in ["eat","drink"]: resident_color=Color("#ffb74d")
+	elif activity_executor.activity_id in ["take_shower","use_toilet","clean"]: resident_color=Color("#4dd0e1")
 	var render_position:=resident_state.render_position
 	if resident_state.posture=="lying": draw_rect(Rect2(render_position-Vector2(30,12),Vector2(60,24)),resident_color)
 	else: draw_circle(render_position,24,resident_color)
 	if resident_state.held_item_id!="": draw_circle(render_position+Vector2(30,0),7,Color("#ffcc80")); draw_string(ThemeDB.fallback_font,render_position+Vector2(38,5),resident_state.held_item_id,HORIZONTAL_ALIGNMENT_LEFT,-1,11,Color.WHITE)
 	if resident_state.posture=="sitting": draw_line(render_position+Vector2(-15,20),render_position+Vector2(15,20),Color("#37474f"),5)
 	if status in ["acting","moving"]: draw_circle(render_position+Vector2(0,-34),6,Color("#fff176"))
+	var activity_icon:=_activity_icon()
+	if activity_icon!="": draw_string(ThemeDB.fallback_font,render_position+Vector2(-8,-48),activity_icon,HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color("#fff59d"))
 	draw_string(ThemeDB.fallback_font,render_position+Vector2(-30,-32),"Resident",HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("#102027"))
 
 func _activity_text()->String:
@@ -442,6 +482,22 @@ func _activity_text()->String:
 	if activity_executor.activity_id!="":return str(ActivityCatalog.get_definition(activity_executor.activity_id).get("activity_label",activity_executor.activity_id))
 	if plan_executor.active:return "performing primitive"
 	return "waiting" if status=="idle" else status
+
+func _activity_icon()->String:
+	match activity_executor.activity_id:
+		"read": return "BOOK"
+		"sleep": return "Zzz"
+		"use_pc": return "PC"
+		"watch_tv": return "TV"
+		"eat": return "EAT"
+		"drink": return "DRINK"
+		"take_shower": return "WATER"
+		"use_toilet": return "REST"
+		"clean": return "CLEAN"
+		"write_diary": return "NOTE"
+		"call_friend": return "CALL"
+		"wait": return "..."
+	return ""
 
 func _cell_to_position(cell:Vector2i)->Vector2:
 	return RoomVisualAdapter.cell_to_position(cell)
