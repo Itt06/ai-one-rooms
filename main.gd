@@ -437,10 +437,10 @@ func _build_ui() -> void:
 	labels["reason"] = _label(Vector2(920,105),"",12); labels["reason"].size = Vector2(345,38); labels["reason"].autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; labels["reason"].clip_text=true
 	labels["connection"] = _label(Vector2(920,150),"",13)
 	labels["right_current"] = _label(Vector2(920,180),"",12); labels["right_current"].size = Vector2(345,36); labels["right_current"].clip_text=true
-	labels["right_needs"] = _label(Vector2(920,216),"",11); labels["right_needs"].size = Vector2(345,145); labels["right_needs"].clip_text=true
-	labels["right_room"] = _label(Vector2(920,361),"",11); labels["right_room"].size = Vector2(345,42); labels["right_room"].clip_text=true
-	labels["right_life"] = _label(Vector2(920,403),"",11); labels["right_life"].size = Vector2(345,42); labels["right_life"].clip_text=true
-	labels["right_relationships"] = _label(Vector2(920,445),"",11); labels["right_relationships"].size = Vector2(345,42); labels["right_relationships"].clip_text=true
+	labels["right_needs"] = _label(Vector2(920,216),"",10); labels["right_needs"].size = Vector2(345,105); labels["right_needs"].clip_text=true
+	labels["right_room"] = _label(Vector2(920,321),"",11); labels["right_room"].size = Vector2(345,42); labels["right_room"].clip_text=true
+	labels["right_life"] = _label(Vector2(920,363),"",11); labels["right_life"].size = Vector2(345,42); labels["right_life"].clip_text=true
+	labels["right_relationships"] = _label(Vector2(920,405),"",11); labels["right_relationships"].size = Vector2(345,48); labels["right_relationships"].clip_text=true
 	progress_bar = ProgressBar.new(); progress_bar.position=Vector2(920,490); progress_bar.size=Vector2(345,18); progress_bar.visible=false; add_child(progress_bar)
 	life_feed_label=_label(Vector2(40,548),"",11); life_feed_label.size=Vector2(830,95); life_feed_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; life_feed_label.clip_text=true
 	personality_label=_label(Vector2(895,548),"",11); personality_label.size=Vector2(360,95); personality_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; personality_label.clip_text=true
@@ -474,8 +474,13 @@ func _update_ui() -> void:
 		var definition:=ActivityCatalog.get_definition(activity_executor.activity_id)
 		progress_bar.max_value=float(definition.get("duration_minutes",1)); progress_bar.value=progress_bar.max_value-activity_executor.remaining_minutes
 	labels["right_current"].text = "CURRENT\n現在：%s" % current_activity
+	var need_lines: Array[String] = []
+	for key in needs_model.values: need_lines.append("%s：%s" % [ObserverText.need_label(key),ObserverText.need_state(float(needs_model.values[key]))])
 	var needs_text := "CURRENT CONDITION\n"
-	for key in needs_model.values: needs_text += "%s：%s\n" % [ObserverText.need_label(key),ObserverText.need_state(float(needs_model.values[key]))]
+	for i in range(0, need_lines.size(), 2):
+		needs_text += need_lines[i]
+		if i + 1 < need_lines.size(): needs_text += "　" + need_lines[i + 1]
+		needs_text += "\n"
 	labels["right_needs"].text = needs_text
 	labels["right_room"].text = "ROOM\n清潔さ：%s　食料：%s　ゴミ：%s" % ["きれい" if room_state.cleanliness>=60 else "少し散らかっている",ObserverText.resource_quality(room_state.item_quantity("simple_food")),ObserverText.trash_quality(int(room_state.resources.get("trash",0)))]
 	labels["right_life"].text = "LIFE / FINANCE\n所持金：%d円　次の支払い：約%.1f時間後" % [finance.cash,max(0.0,finance.next_fixed_expense_time-clock.total_minutes)/60.0]
