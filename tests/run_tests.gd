@@ -21,6 +21,7 @@ func _initialize() -> void:
 	_test_multiday_world_dynamics()
 	_test_habit_periods()
 	_test_v20_observer_data()
+	_test_japanese_observer_text()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -50,7 +51,7 @@ func _test_habit_periods() -> void:
 
 func _test_v20_observer_data() -> void:
 	var diary:=DiaryComposer.compose("Day 2 21:00","read",{"boredom":70.0},{"boredom":35.0})
-	_check(diary.contains("reading") and diary.contains("eased"), "diary composer should describe a real completed change")
+	_check(diary.contains("本を読んでいる") and diary.contains("落ち着いた"), "diary composer should describe a real completed change")
 	var memory:=MemoryStore.new(); memory.add("Day 1","sleep","I slept near the bed.","completed",0.4,["bed"],{"sleepiness":-60})
 	memory.add("Day 2","wait","I waited.","completed",0.9,["window"],{})
 	var ranked:=memory.retrieve([],[],1,"",["sleepiness"], ["bed","sleep"])
@@ -62,6 +63,16 @@ func _test_v20_observer_data() -> void:
 	_check(str(ranked[0].get("related_action",""))=="use_pc", "without current topics, tool availability should only use related action scoring")
 	_check(ObserverContext.relevant_memory_note({"summary":"Reading helped me relax."}).begins_with("Relevant memory:"), "observer memory note must not claim causal decision use")
 	var observation:=ObservationBuilder.build(WorldClock.new(),ResidentNeeds.new(),RoomState.new(),Vector2.ZERO,"idle",[],[],{},[],{},{}); _check(not observation.has("available_actions") and observation.has("available_tools"), "obsolete available_actions contract should be absent")
+
+func _test_japanese_observer_text() -> void:
+	for key in ResidentNeeds.new().values: _check(ObserverText.need_label(str(key))!=str(key), "need should have a Japanese display label: %s" % key)
+	for key in ActivityCatalog.DEFINITIONS: _check(ObserverText.activity_label(str(key))!=str(key), "activity should have a Japanese display label: %s" % key)
+	var diary:=DiaryComposer.compose("Day 1 08:00","read",{"boredom":70.0},{"boredom":30.0})
+	_check(diary.contains("本を読んでいる") and diary.contains("退屈"), "diary should be natural Japanese")
+	_check(not ObserverText.skill_text({"id":"skill_move_near_pick_up_read","steps":[{"tool":"move_near","args":{"target_type":"bookshelf"}},{"tool":"pick_up","args":{"target_type":"book"}},{"tool":"read","args":{"target_type":"book"}}]}).contains("skill_"), "skill display should hide internal id")
+	_check(not ObserverContext.relevant_memory_note({"id":"mem_0012","summary":"昨日、本を読んだ。"}).contains("mem_0012"), "memory display should hide internal id")
+	_check(ObserverText.preference_text("read",0.32).contains("読書") and not ObserverText.preference_text("read",0.32).contains("0.32"), "preference display should be human-readable")
+	_check(ObserverText.period_label("night")=="夜" and ObserverText.time_label("Day 2 21:00","night").contains("2日"), "time and period should be Japanese")
 
 func _test_candidates_and_validation() -> void:
 	var room := RoomState.new()
