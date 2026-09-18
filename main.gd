@@ -547,6 +547,14 @@ func _draw() -> void:
 		draw_texture_rect_region(active_resident_texture,Rect2(render_position-Vector2(34,48)+ResidentVisualAdapter.offset_for(activity)+bob,Vector2(68,86)),resident_region)
 	else:
 		draw_circle(render_position,24,Color("#4fc3f7"))
+	if activity=="masturbate" and int(room_state.resources.get("tissues",0))>0:
+		draw_rect(Rect2(render_position+Vector2(24,-10),Vector2(10,8)),Color("#f7f4ea"),true)
+	if activity=="sex":
+		# Presentation-only partner silhouette; no state, needs, or decision logic.
+		var partner_position:=render_position+Vector2(42,0)
+		draw_circle(partner_position+Vector2(0,-28),10,Color("#c48b6b"))
+		draw_rect(Rect2(partner_position+Vector2(-10,-18),Vector2(20,28)),Color("#6f8791"),true)
+		draw_circle(render_position+Vector2(20,-62),4,Color("#f48fb1"))
 	if status in ["acting","moving"]: draw_circle(render_position+Vector2(0,-54),5,Color("#fff176"))
 
 func _draw_furniture(id:String,p:Vector2)->void:

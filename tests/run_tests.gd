@@ -24,6 +24,7 @@ func _initialize() -> void:
 	_test_v21_presentation_contract()
 	_test_resident_visual_mapping()
 	_test_v23_life_systems()
+	_test_v24_private_activity_consequences()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -118,6 +119,7 @@ func _test_v23_life_systems()->void:
 	_check(not bool(relations.consume_context("girlfriend_01").ok),"sex must require accepted context")
 	var invite:=relations.invite("girlfriend_01",20000,"Day 1");_check(str(invite.outcome) in ["accepted","declined"],"invite resolver outcome")
 	_check(not bool(RelationshipStore.new().invite("invented",20000,"Day 1").ok),"invalid partner must be rejected")
+
 	var invalid_authority:=DecisionSchema.validate({"decision_type":"plan","reason":"x","plan":[{"tool":"wait","args":{}}],"goal_updates":{"add":[],"complete":[],"abandon":[]},"accepted":true});_check(not bool(invalid_authority.ok),"LLM cannot inject acceptance")
 	var restored_relations:=RelationshipStore.new();restored_relations.load_state(relations.serialize());_check(restored_relations.contacts.size()==relations.contacts.size(),"relationship roundtrip")
 	var migrated_relations:=RelationshipStore.new();migrated_relations.load_state({});_check(migrated_relations.contacts.has("girlfriend_01"),"legacy save without contacts should use safe defaults")
@@ -371,6 +373,7 @@ func _test_multiday_world_dynamics() -> void:
 
 func _test_save_round_trip_and_migration() -> void:
 	var room:=RoomState.new(); room.objects.chair.state=true; room.move_object("chair",Vector2i(5,1),0); room.items.food_stack.quantity=2
+	room.resources.tissues=3; room.private_stains=2
 	var loaded:=RoomState.new(); loaded.load_state(room.serialize())
 	_check(loaded.objects.chair.origin_cell==Vector2i(5,1) and loaded.objects.chair.state==true, "object placement and state should round-trip")
 	_check(int(loaded.items.food_stack.quantity)==2, "item quantity should round-trip")
@@ -383,4 +386,16 @@ func _test_save_round_trip_and_migration() -> void:
 	_check(SaveManager.save_state(payload,test_path), "SaveManager should write test round-trip")
 	var persisted:=SaveManager.load_state(test_path)
 	_check(persisted.has("room") and persisted.has("resident_state") and int(persisted.room.items.food_stack.quantity)==2, "SaveManager should load authoritative state")
+	var persisted_room:=RoomState.new(); persisted_room.load_state(persisted.room); _check(int(persisted_room.resources.tissues)==3 and persisted_room.private_stains==2,"tissues and stains should round-trip")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(test_path))
+
+func _test_v24_private_activity_consequences()->void:
+	var room:=RoomState.new(); var resident:=ResidentState.new(); var needs:=ResidentNeeds.new(); resident.current_cell=room.objects.sink.interaction_cells[0]
+	var executor:=ActivityExecutor.new(); var tissues_before:=int(room.resources.tissues); needs.values.sexual_desire=80.0
+	_check(bool(executor.begin("masturbate","","test",room,needs,resident).ok),"masturbation should begin without a target")
+	executor.update(20.0); var prepared:=executor.complete(room,needs,resident); _check(int(room.resources.tissues)==tissues_before-1 and room.private_stains==0 and float(prepared.after_needs.sexual_desire)<80.0,"tissue cleanup outcome")
+	room.resources.tissues=0; var clean_before:=room.cleanliness; _check(bool(executor.begin("masturbate","","test",room,needs,resident).ok),"masturbation should work without tissue")
+	executor.update(20.0); var improvised:=executor.complete(room,needs,resident); _check(room.private_stains==1 and room.cleanliness<clean_before and int(improvised.stains_added)==1,"no-tissue mess outcome")
+	var clean_exec:=ActivityExecutor.new(); _check(bool(clean_exec.begin("clean","sink","test",room,needs,resident).ok),"clean should begin near sink"); clean_exec.update(30.0); clean_exec.complete(room,needs,resident); _check(room.private_stains==0,"clean should remove stains")
+	_check(ResidentVisualAdapter.region_for("masturbate","acting","sitting",0)!=ResidentVisualAdapter.region_for("unknown","idle","standing",0),"masturbation should not use idle pose")
+	_check(ResidentVisualAdapter.region_for("sex","acting","lying",0)!=ResidentVisualAdapter.region_for("masturbate","acting","sitting",0),"sex should use a distinct privacy pose")
