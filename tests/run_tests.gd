@@ -25,6 +25,7 @@ func _initialize() -> void:
 	_test_resident_visual_mapping()
 	_test_v23_life_systems()
 	_test_v24_private_activity_consequences()
+	_test_felt_pressures()
 	if failures == 0:
 		print("ai-one-rooms tests: PASS")
 		quit(0)
@@ -388,6 +389,17 @@ func _test_save_round_trip_and_migration() -> void:
 	_check(persisted.has("room") and persisted.has("resident_state") and int(persisted.room.items.food_stack.quantity)==2, "SaveManager should load authoritative state")
 	var persisted_room:=RoomState.new(); persisted_room.load_state(persisted.room); _check(int(persisted_room.resources.tissues)==3 and persisted_room.private_stains==2,"tissues and stains should round-trip")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(test_path))
+
+func _test_felt_pressures()->void:
+	var needs:=ResidentNeeds.new(); needs.values.sexual_desire=98.0; needs.values.loneliness=82.0; needs.values.stress=55.0
+	var observation:=ObservationBuilder.build(WorldClock.new(),needs,RoomState.new(),Vector2.ZERO,"idle",[],[],{},[],{}, {})
+	_check(str(observation.need_states.sexual_desire)=="intense","98 sexual desire should be intense")
+	_check(ObservationBuilder.intensity_for(88.0)=="strong","88 should be strong")
+	_check(ObservationBuilder.intensity_for(75.0)=="elevated","75 should be elevated")
+	needs.values.sexual_desire=100.0; var updated:=ObservationBuilder.build(WorldClock.new(),needs,RoomState.new(),Vector2.ZERO,"idle",[],[],{},[],{}, {})
+	_check(str(updated.need_states.sexual_desire)!="critical","sexual desire must not be critical")
+	var pressures:=ObservationBuilder.felt_pressures(needs); _check(str(pressures[0].need)=="sexual_desire","felt pressures should be strongest first")
+	_check(not updated.has("recommended_action") and not updated.has("suggested_action"),"felt pressures must not prescribe actions")
 
 func _test_v24_private_activity_consequences()->void:
 	var room:=RoomState.new(); var resident:=ResidentState.new(); var needs:=ResidentNeeds.new(); resident.current_cell=room.objects.sink.interaction_cells[0]
