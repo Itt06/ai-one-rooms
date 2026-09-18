@@ -7,6 +7,10 @@ const PREFS := {"read":"読書","sleep":"睡眠","drink":"水分補給","eat":"�
 
 static func need_label(id:String)->String: return str(NEEDS.get(id,id))
 static func activity_label(id:String)->String: return str(ACTIVITIES.get(id,id))
+static func activity_noun(id:String)->String:
+	return {"read":"読書","sleep":"睡眠","drink":"水分補給","eat":"食事","use_pc":"PC","watch_tv":"テレビ","clean":"片付け","take_shower":"シャワー","use_toilet":"トイレ","write_diary":"日記","call_friend":"電話","look_out_window":"窓の外を見ること","wait":"ひと休み"}.get(id,"行動")
+static func activity_completed_label(id:String)->String:
+	return {"read":"本を読み終えた","sleep":"眠りから起きた","drink":"水を飲んだ","eat":"食事を終えた","use_pc":"PCを使い終えた","watch_tv":"テレビを見終えた","clean":"部屋を片付けた","take_shower":"シャワーを浴びた","use_toilet":"トイレを済ませた","write_diary":"日記を書いた","call_friend":"電話を終えた","look_out_window":"窓の外を眺めた","wait":"ひと休みした"}.get(id,"行動を終えた")
 static func need_state(value:float)->String:
 	if value>=85.0: return "かなり強い"
 	if value>=60.0: return "少し気になる"
@@ -46,4 +50,4 @@ static func skill_label(skill:Dictionary)->String:
 static func object_label(id:String)->String:
 	return {"bed":"ベッド","bookshelf":"本棚","book_01":"本","desk":"机","chair":"椅子","fridge":"冷蔵庫","sink":"シンク","pc":"PC","tv":"テレビ","window":"窓","trash_bin":"ゴミ箱","shower":"シャワー","toilet":"トイレ"}.get(id,id)
 static func time_label(text:String, period:String)->String:
-	return text.replace("Day ","").replace(" ","日 ")+"　"+{"morning":"朝","afternoon":"昼","evening":"夕方","night":"夜"}.get(period,period)
+	return text.replace("Day ","").replace(" ","日目 ")+"　"+{"morning":"朝","afternoon":"昼","evening":"夕方","night":"夜"}.get(period,period)
