@@ -235,12 +235,9 @@ func _on_decision_failed(error_message: String, latency_ms: int, raw_response: S
 func _check_interrupt() -> void:
 	if not activity_executor.is_active():
 		return
-	var severe_thirst := float(needs_model.values.get("thirst",0.0)) >= ActivityExecutor.CRITICAL_THIRST and activity_executor.activity_id != "drink"
-	var severe_toilet := float(needs_model.values.get("toilet_need",0.0)) >= ActivityExecutor.CRITICAL_TOILET and activity_executor.activity_id != "use_toilet"
-	var severe_sleep := float(needs_model.values.get("sleepiness",0.0)) >= ActivityExecutor.CRITICAL_SLEEPINESS and activity_executor.activity_id != "sleep"
-	var severe_discomfort := float(needs_model.values.get("discomfort",0.0)) >= ActivityExecutor.CRITICAL_DISCOMFORT and activity_executor.activity_id not in ["clean","take_shower","take_out_trash","use_toilet","sleep"]
-	if severe_thirst or severe_toilet or severe_sleep or severe_discomfort:
-		var interruption_reason:="severe_discomfort" if severe_discomfort else ("severe_thirst" if severe_thirst else ("severe_toilet" if severe_toilet else "severe_sleep"))
+	var critical_error:=ActivityExecutor.critical_need_error(activity_executor.activity_id,needs_model)
+	if critical_error!="":
+		var interruption_reason:="severe_%s" % critical_error.trim_prefix("critical_").trim_suffix("_blocks_activity")
 		var records:Array=diagnostics.get("activity_interruption_records",[]); records.append({"activity":activity_executor.activity_id,"target":activity_executor.target_id,"reason":interruption_reason,"start_needs":activity_executor.before_needs.duplicate(true),"interruption_needs":needs_model.values.duplicate(true),"elapsed_minutes":float(ActivityCatalog.get_definition(activity_executor.activity_id).get("duration_minutes",0.0))-activity_executor.remaining_minutes}); if records.size()>100:records.pop_front(); diagnostics["activity_interruption_records"]=records
 		var reasons:Dictionary=diagnostics.get("activity_interruption_reasons",{}); reasons[interruption_reason]=int(reasons.get(interruption_reason,0))+1; diagnostics["activity_interruption_reasons"]=reasons
 		var interrupted := activity_executor.interrupt("A critical physical need interrupted the activity.")

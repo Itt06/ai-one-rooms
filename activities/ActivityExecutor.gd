@@ -7,10 +7,19 @@ const CRITICAL_SLEEPINESS:=99.0
 const CRITICAL_DISCOMFORT:=98.0
 
 static func critical_need_error(activity_id:String, needs:ResidentNeeds)->String:
-	if float(needs.values.get("thirst",0.0))>=CRITICAL_THIRST and activity_id!="drink": return "critical_thirst_blocks_activity"
-	if float(needs.values.get("toilet_need",0.0))>=CRITICAL_TOILET and activity_id!="use_toilet": return "critical_toilet_blocks_activity"
-	if float(needs.values.get("sleepiness",0.0))>=CRITICAL_SLEEPINESS and activity_id!="sleep": return "critical_sleepiness_blocks_activity"
-	if float(needs.values.get("discomfort",0.0))>=CRITICAL_DISCOMFORT and activity_id not in ["clean","take_shower","take_out_trash","use_toilet","sleep"]: return "critical_discomfort_blocks_activity"
+	var critical:Dictionary={
+		"thirst":float(needs.values.get("thirst",0.0))>=CRITICAL_THIRST,
+		"toilet_need":float(needs.values.get("toilet_need",0.0))>=CRITICAL_TOILET,
+		"sleepiness":float(needs.values.get("sleepiness",0.0))>=CRITICAL_SLEEPINESS,
+		"discomfort":float(needs.values.get("discomfort",0.0))>=CRITICAL_DISCOMFORT
+	}
+	# A recovery Activity only needs to relieve one currently critical Need.
+	# This prevents simultaneous critical Needs from deadlocking each other.
+	var relief:Dictionary={"drink":["thirst"],"use_toilet":["toilet_need"],"sleep":["sleepiness","discomfort"],"clean":["discomfort"],"take_shower":["discomfort"],"take_out_trash":["discomfort"]}
+	for need_name in relief.get(activity_id,[]):
+		if bool(critical.get(need_name,false)): return ""
+	for need_name in ["thirst","toilet_need","sleepiness","discomfort"]:
+		if bool(critical.get(need_name,false)): return "critical_%s_blocks_activity" % need_name
 	return ""
 
 enum State { IDLE, STARTING, RUNNING, COMPLETED, FAILED, INTERRUPTED }

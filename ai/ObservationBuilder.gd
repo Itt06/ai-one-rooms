@@ -4,7 +4,8 @@ extends RefCounted
 static func build(clock: WorldClock, needs: ResidentNeeds, room: RoomState, position: Vector2, action: String, memories: Array, goals: Array, preferences: Dictionary, candidates: Array, habits := {}, resident := {}, available_skills := [], recent_behavior := {}) -> Dictionary:
 	var need_states:Dictionary={}
 	for key in needs.values:
-		var value:=float(needs.values[key]); need_states[key]="critical" if value>=90.0 else ("elevated" if value>=70.0 else "ordinary")
+		var value:=float(needs.values[key]); var threshold:=ActivityExecutor.CRITICAL_SLEEPINESS if key=="sleepiness" else ActivityExecutor.CRITICAL_THIRST if key=="thirst" else ActivityExecutor.CRITICAL_TOILET if key=="toilet_need" else ActivityExecutor.CRITICAL_DISCOMFORT if key=="discomfort" else 100.1
+		need_states[key]="critical" if value>=threshold else ("elevated" if value>=70.0 else "ordinary")
 	return {
 		"time": clock.snapshot(),
 		"self": {
