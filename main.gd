@@ -137,7 +137,11 @@ func _accept_plan(plan:Array, why:String, updates:Dictionary, skill_id:String)->
 		for plan_step in plan:
 			if ActivityCatalog.DEFINITIONS.has(str(plan_step.get("tool",""))): has_activity=true; break
 		diagnostics["plans_with_activity" if has_activity else "primitive_only_plans"]+=1
-	reason=why if why!="" else "I am deciding what to do."; plan_executor.begin(plan,reason); diagnostics.plans_started+=1; status="acting"; _record_history("plan_started",plan_executor.plan_id,"",reason); _run_plan_step()
+	var public_reason:=why if why!="" else "I am deciding what to do."
+	if not last_retrieved_memory_ids.is_empty():
+		for memory in memory_store.entries:
+			if str(memory.get("id",""))==str(last_retrieved_memory_ids[0]): public_reason += " Remembered: %s" % str(memory.get("summary","")); break
+	reason=public_reason; plan_executor.begin(plan,reason); diagnostics.plans_started+=1; status="acting"; _record_history("plan_started",plan_executor.plan_id,"",reason); _run_plan_step()
 
 func _run_plan_step()->void:
 	if not plan_executor.active:return
@@ -432,7 +436,10 @@ func _update_ui() -> void:
 	var pref_summary := preferences.summary()
 	for key in pref_summary: text += "%s: %.2f\n" % [key,float(pref_summary[key])]
 	text += "\nHABITS\n" + ("none\n" if habit_store.summary().is_empty() else "\n".join(habit_store.summary())+"\n")
-	text += "\nSKILLS: %d\nACTIVITY: %s\nCELL: [%d,%d]  POSTURE: %s\nHELD: %s\nLLM: %d ms" % [skill_store.skills.size(),_activity_text(),resident_state.current_cell.x,resident_state.current_cell.y,resident_state.posture,resident_state.held_item_id if resident_state.held_item_id!="" else "none",last_latency_ms]
+	var skill_names:Array=[]
+	for skill in skill_store.skills.slice(0,min(5,skill_store.skills.size())): skill_names.append(str(skill.get("name",skill.get("id",""))))
+	text += "\nSKILLS\n" + ("none\n" if skill_names.is_empty() else "\n".join(skill_names)+"\n")
+	text += "\nACTIVITY: %s\nCELL: [%d,%d]  POSTURE: %s\nHELD: %s\nLLM: %d ms" % [_activity_text(),resident_state.current_cell.x,resident_state.current_cell.y,resident_state.posture,resident_state.held_item_id if resident_state.held_item_id!="" else "none",last_latency_ms]
 	labels["panel"].text = text
 	var history_text := "RECENT\n"
 	for item in decision_history.slice(0,min(12,decision_history.size())):
