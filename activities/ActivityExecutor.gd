@@ -89,11 +89,27 @@ func complete(room:RoomState,needs:ResidentNeeds,resident:ResidentState,diary_te
 	if bool(definition.get("consumes_item",false)):
 		room.consume_item(target_id)
 		if int(room.items.get(target_id,{}).get("quantity",0))<=0: resident.held_item_id=""
-	if activity_id=="clean": room.cleanliness=min(100.0,room.cleanliness+20.0)
+	var cleanup:="none"
+	if activity_id=="clean":
+		var stains_before:=room.private_stains
+		room.private_stains=max(0,room.private_stains-3)
+		room.cleanliness=min(100.0,room.cleanliness+20.0+float(stains_before-room.private_stains)*2.0)
+		cleanup="stains_removed" if stains_before>room.private_stains else "general_cleaning"
+	if activity_id=="masturbate":
+		if int(room.resources.get("tissues",0))>0:
+			room.resources["tissues"]=int(room.resources.get("tissues",0))-1
+			room.resources["trash"]=int(room.resources.get("trash",0))+1
+			room.cleanliness=clamp(room.cleanliness-1.0,0.0,100.0)
+			cleanup="prepared"
+		else:
+			room.private_stains=min(20,room.private_stains+1)
+			room.cleanliness=clamp(room.cleanliness-8.0,0.0,100.0)
+			cleanup="improvised"
 	if activity_id=="take_out_trash": room.resources["trash"]=0
 	if activity_id=="eat": room.resources["trash"]=int(room.resources.get("trash",0))+1
-	if activity_id=="order_groceries": room.resources["trash"]=int(room.resources.get("trash",0))+1
+	if activity_id=="order_groceries": room.resources["trash"]=int(room.resources.get("trash",0))+1; room.resources["tissues"]=min(20,int(room.resources.get("tissues",0))+4)
 	var result:Dictionary={"ok":true,"activity":activity_id,"target":target_id,"duration_minutes":float(definition.duration_minutes),"before_needs":before_needs,"after_needs":needs.values.duplicate(true),"result":"completed","location":[started_cell.x,started_cell.y]}
+	if cleanup!="none": result["cleanup"]=cleanup; result["stains_added"]=1 if cleanup=="improvised" else 0; result["stains_removed"]=0 if cleanup!="stains_removed" else 1; result["tissue_consumed"]=1 if cleanup=="prepared" else 0
 	if social_result!="": result["social_result"]=social_result
 	if activity_id=="write_diary": result["diary_text"]=diary_text
 	reset()

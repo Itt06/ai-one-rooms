@@ -19,7 +19,8 @@ static func region_for(activity:String, status:String, posture:String, frame:int
 	if activity=="clean": return Rect2(0, ROW, COL, ROW)
 	# Intimate activities remain non-explicit and use the seated private-life pose.
 	# They must not fall back to the neutral standing sprite while the activity runs.
-	if activity=="masturbate" or activity=="sex": return Rect2(0, ROW*2.0, COL, ROW)
+	if activity=="masturbate": return Rect2(0, ROW*2.0, COL, ROW)
+	if activity=="sex": return Rect2(COL, ROW*2.0, COL, ROW)
 	if posture=="sitting": return Rect2(0, ROW*2.0, COL, ROW)
 	if status=="moving": return Rect2(COL* (2 if frame%2==0 else 3), ROW, COL, ROW)
 	return Rect2(0,0,COL,ROW)

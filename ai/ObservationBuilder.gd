@@ -20,10 +20,12 @@ static func build(clock: WorldClock, needs: ResidentNeeds, room: RoomState, posi
 		"room": {
 			"cleanliness": room.cleanliness,
 			"trash_level": room.resources.get("trash", 0),
+			"private_stains": room.private_stains,
 			"light_on": room.light_on
 		},
 		"visible_objects": room.visible_objects(),
 		"resources": room.resources.duplicate(true),
+		"household_supplies": {"tissues": int(room.resources.get("tissues",0)), "stains": room.private_stains},
 		"need_states": need_states,
 		"items": room.items.values().duplicate(true),
 		"active_goals": goals.duplicate(true),

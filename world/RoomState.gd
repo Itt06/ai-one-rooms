@@ -2,6 +2,7 @@ class_name RoomState
 extends RefCounted
 
 var cleanliness := 82.0
+var private_stains := 0
 var light_on := true
 var revision := 0
 var grid := RoomGrid.new()
@@ -9,7 +10,7 @@ var items := {
 	"book_01":{"id":"book_01","type":"book","display_name":"Book","location":"bookshelf","held_by":"","container":"bookshelf","grid_cell":Vector2i(2,2),"rotation":0,"size":Vector2i(1,1),"blocks_movement":false,"portable":true,"properties":{"readable":true}},
 	"food_stack":{"id":"food_stack","type":"simple_food","display_name":"Simple food","quantity":5,"location":"fridge","held_by":"","container":"fridge","grid_cell":null,"rotation":0,"size":Vector2i(1,1),"blocks_movement":false,"portable":true,"properties":{"edible":true}}
 }
-var resources := {"water":6,"trash":0}
+var resources := {"water":6,"trash":0,"tissues":6}
 var objects := {
 	"bed":{"id":"bed","type":"bed","display_name":"Bed","origin_cell":Vector2i(1,5),"occupied_cells":[Vector2i(1,5),Vector2i(2,5),Vector2i(1,6),Vector2i(2,6)],"interaction_cells":[Vector2i(1,7),Vector2i(2,7)],"rotation":0,"movable":false,"blocks_movement":true,"position":Vector2(170,440),"interaction_point":Vector2(280,440),"supported_actions":["sleep","sit","inspect_object"]},
 	"desk":{"id":"desk","display_name":"Desk","position":Vector2(420,440),"interaction_point":Vector2(390,480),"supported_actions":["sit","write_diary","inspect_object"]},
@@ -90,11 +91,12 @@ func serialize()->Dictionary:
 		for key in ["grid_cell","size"]:
 			if item.get(key) is Vector2i: item[key]=[item[key].x,item[key].y]
 		saved_items[id]=item
-	return {"cleanliness":cleanliness,"light_on":light_on,"revision":revision,"resources":resources.duplicate(true),"items":saved_items,"objects":placement}
+	return {"cleanliness":cleanliness,"private_stains":private_stains,"light_on":light_on,"revision":revision,"resources":resources.duplicate(true),"items":saved_items,"objects":placement}
 
 func load_state(data)->void:
 	if not data is Dictionary:return
 	cleanliness=float(data.get("cleanliness",cleanliness)); light_on=bool(data.get("light_on",light_on)); revision=int(data.get("revision",revision))
+	private_stains=clamp(int(data.get("private_stains",private_stains)),0,20)
 	if data.get("resources",{}) is Dictionary: resources.merge(data.resources,true)
 	if data.get("items",{}) is Dictionary: items.merge(data.items,true)
 	for item_id in items:
