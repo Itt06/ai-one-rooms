@@ -34,6 +34,24 @@ func add_life_event(event:Dictionary)->void:
 	add(str(event.get("time","")),activity,summary,str(event.get("result",{}).get("reason","completed")),float(event.get("salience",0.5)),[target] if target!="" else [],event.get("need_delta",{}))
 	if not entries.is_empty():
 		entries[0]["event_type"]="activity_completed"; entries[0]["activity"]=activity; entries[0]["target"]=target; entries[0]["need_effects"]=event.get("need_delta",{}); entries[0]["tags"]=event.get("tags",[])
+		entries[0]["objective_result"]=event.get("result",{})
+
+func enrich_latest_experience(appraisal:Dictionary)->bool:
+	if entries.is_empty() or not bool(ExperienceAppraisalHarness.validate(appraisal).get("ok",false)):return false
+	var memory:Dictionary=entries[0]
+	memory["subjective_experience"]=str(appraisal.felt_result)
+	memory["emotional_tone"]=str(appraisal.emotional_tone)
+	memory["satisfaction"]=str(appraisal.satisfaction)
+	memory["surprise"]=str(appraisal.surprise)
+	memory["meaning"]=str(appraisal.meaning)
+	memory["future_inclination"]=str(appraisal.future_inclination)
+	memory["subjective_available"]=true
+	memory["summary"]=_subjective_summary(memory)
+	return true
+
+static func _subjective_summary(memory:Dictionary)->String:
+	var objective:=str(memory.get("summary",""));var subjective:=str(memory.get("subjective_experience",""))
+	return objective if subjective=="" else subjective
 
 static func _narrate(event:Dictionary)->String:
 	var activity:=str(event.get("activity","")); var delta:Dictionary=event.get("need_delta",{})

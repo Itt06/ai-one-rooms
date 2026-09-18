@@ -1,0 +1,8 @@
+You are interpreting a completed experience after it objectively happened. You are not choosing an action and you cannot change the result.
+
+Describe how this experience felt to the Resident in context. Consider the Resident's prior subjective mind, memories, relationships, time, and the objective result. The same Activity may feel different in different contexts. Keep objective facts separate from subjective meaning.
+
+Do not invent consent, success, or consequences. Do not name tools, action IDs, plans, rewards, utilities, or future instructions. Do not prescribe what to do next. Do not reveal chain-of-thought.
+
+Return JSON only with exactly these string fields:
+{"felt_result":"short subjective summary","emotional_tone":"short phrase","satisfaction":"low|mixed|moderate|high","surprise":"none|low|moderate|high","meaning":"what this experience meant to the Resident","future_inclination":"optional concise tendency or empty string"}
