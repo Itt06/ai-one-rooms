@@ -81,6 +81,9 @@ func _test_resident_visual_mapping() -> void:
 	_check(ResidentVisualAdapter.region_for("sleep","acting","lying",0).position == Vector2(384,768), "sleep should use sleep sprite")
 	_check(ResidentVisualAdapter.region_for("read","acting","sitting",0).position == Vector2(768,768), "read should use read sprite")
 	_check(ResidentVisualAdapter.region_for("use_pc","acting","sitting",0).position == Vector2(1152,768), "pc should use pc sprite")
+	_check(ResidentVisualAdapter.region_for("","idle","sitting",0).position == Vector2.ZERO + Vector2(0,768), "sitting should use sit sprite")
+	_check(ResidentVisualAdapter.region_for("watch_tv","acting","sitting",0) != ResidentVisualAdapter.region_for("use_pc","acting","sitting",0), "tv should use a distinct pose")
+	_check(ResidentVisualAdapter.region_for("clean","acting","standing",0) != ResidentVisualAdapter.region_for("write_diary","acting","sitting",0), "clean should use a distinct pose")
 	_check(ResidentVisualAdapter.held_prop("book_01","read") == "本", "book prop should be visible")
 	_check(ResidentVisualAdapter.region_for("unknown","idle","standing",0).position == Vector2.ZERO, "unknown activity should safely use idle")
 
