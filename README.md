@@ -172,4 +172,6 @@ The save format is currently version 5. Existing v1.1 saves are migrated conserv
 
 V2 observer presentation keeps technical validation in the debug panel while the normal life feed shows completed activities and verified preference, habit, and skill transitions. Diary entries are generated deterministically from completed activity state; no additional LLM request is used.
 
+The normal observer view is Japanese-first. Internal IDs, exact Need values, validation data, and raw model responses remain available through the debug view.
+
 Activity execution is restored as idle after loading a save; persistent world and resident state are retained safely.
