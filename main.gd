@@ -45,6 +45,12 @@ var relationships := RelationshipStore.new()
 var recent_activity_history:Array=[]
 var activity_executor := ActivityExecutor.new()
 var harness: ResidentHarness
+var appraisal_harness:ResidentAppraisalHarness
+var resident_mind:=ResidentMindState.new()
+var mind_dirty:=true
+var mind_dirty_reason:="initial"
+var mind_revision:=0
+var mind_bands:Dictionary={}
 var resident_state := ResidentState.new()
 var resident_movement := ResidentMovement.new()
 var plan_executor := PlanExecutor.new()
@@ -53,7 +59,7 @@ var plan_history := PlanHistory.new()
 var skill_store := SkillStore.new()
 var current_skill_id := ""
 var partner_visual := PartnerVisualState.new()
-var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"activity_types_requested":{},"activity_interruption_reasons":{},"activity_interruption_records":[],"primitive_only_plans":0,"plans_with_activity":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"critical_preflight_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"food_consumed":0,"groceries_ordered":0,"trash_generated":0,"trash_removed":0,"cleaning_activities":0,"sleep_completed":0,"drink_completed":0,"toilet_completed":0,"work_completed":0,"masturbation_completed":0,"partner_invitations":0,"partner_accepted":0,"partner_declined":0,"sex_completed":0,"desire_samples":0,"desire_sum":0.0,"desire_min":100.0,"desire_max":0.0,"last_drink_result":{},"last_successful_drink_time":"","tool_frequency":{}}
+var diagnostics:Dictionary={"total_decisions":0,"plans_started":0,"plans_completed":0,"plans_aborted":0,"activities_started":0,"activities_completed":0,"activities_failed":0,"activities_interrupted":0,"activity_types_requested":{},"activity_interruption_reasons":{},"activity_interruption_records":[],"primitive_only_plans":0,"plans_with_activity":0,"skills_invoked":0,"skills_completed":0,"skills_failed":0,"fallback_waits":0,"semantic_rejections":0,"critical_preflight_rejections":0,"schema_repair_attempts":0,"semantic_repair_attempts":0,"repair_recovered":0,"repair_failed":0,"appraisal_requests":0,"appraisal_schema_failures":0,"appraisal_repairs":0,"appraisal_recovered":0,"appraisal_failures":0,"appraisal_latency_ms":0,"food_consumed":0,"groceries_ordered":0,"trash_generated":0,"trash_removed":0,"cleaning_activities":0,"sleep_completed":0,"drink_completed":0,"toilet_completed":0,"work_completed":0,"masturbation_completed":0,"partner_invitations":0,"partner_accepted":0,"partner_declined":0,"sex_completed":0,"desire_samples":0,"desire_sum":0.0,"desire_min":100.0,"desire_max":0.0,"last_drink_result":{},"last_successful_drink_time":"","tool_frequency":{}}
 var decision_revision := 0
 
 func _ready() -> void:
@@ -62,7 +68,13 @@ func _ready() -> void:
 	resident_supplemental_atlas = load(ResidentVisualAdapter.SUPPLEMENTAL_PATH) as Texture2D
 	config_data = _config()
 	_load_game()
+	mind_bands=_current_mind_bands()
 	partner_visual.visit_finished.connect(_on_partner_visit_finished)
+	appraisal_harness=ResidentAppraisalHarness.new();add_child(appraisal_harness)
+	appraisal_harness.appraisal_ready.connect(_on_appraisal_ready)
+	appraisal_harness.appraisal_failed.connect(_on_appraisal_failed)
+	appraisal_harness.repair_attempted.connect(func():diagnostics.appraisal_repairs=int(diagnostics.get("appraisal_repairs",0))+1;diagnostics.appraisal_schema_failures=int(diagnostics.get("appraisal_schema_failures",0))+1)
+	appraisal_harness.repair_recovered.connect(func():diagnostics.appraisal_recovered=int(diagnostics.get("appraisal_recovered",0))+1)
 	harness = ResidentHarness.new()
 	add_child(harness)
 	harness.decision_failed.connect(_on_decision_failed)
@@ -89,6 +101,7 @@ func _process(delta: float) -> void:
 		finance.advance(clock.total_minutes,clock.text())
 		if room_state.cleanliness < 40.0:
 			needs_model.apply({"discomfort":elapsed_minutes * 0.001})
+		_refresh_mind_invalidation()
 	if activity_executor.is_active() and speed > 0.0:
 		var activity_update:=activity_executor.update(elapsed_minutes)
 		status=str(activity_update.get("state",status))
@@ -109,15 +122,13 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 func _request_decision() -> void:
-	if harness == null or harness.is_busy() or status == "thinking":
+	if harness == null or harness.is_busy() or (appraisal_harness!=null and appraisal_harness.is_busy()) or status == "thinking":
 		return
 	var candidates:Array=[]
-	diagnostics.total_decisions+=1
-	var desire:=float(needs_model.values.get("sexual_desire",0.0));diagnostics.desire_samples=int(diagnostics.get("desire_samples",0))+1;diagnostics.desire_sum=float(diagnostics.get("desire_sum",0.0))+desire;diagnostics.desire_min=min(float(diagnostics.get("desire_min",100.0)),desire);diagnostics.desire_max=max(float(diagnostics.get("desire_max",0.0)),desire)
 	var action_ids: Array = []
 	var contact_targets:Array=relationships.contacts.keys();var accepted_targets:Array=[]
 	if not relationships.accepted_partner_context.is_empty():accepted_targets=[str(relationships.accepted_partner_context.get("contact_id",""))]
-	var life_context:Dictionary={"cash":finance.cash,"contact_targets":contact_targets,"accepted_partner_targets":accepted_targets,"sexual_partner_options":relationships.sex_partner_candidates(finance.cash),"finances":finance.snapshot(clock.total_minutes),"relationships":relationships.observation()}
+	var life_context:Dictionary={"cash":finance.cash,"contact_targets":contact_targets,"accepted_partner_targets":accepted_targets,"sexual_partner_options":relationships.sex_partner_candidates(finance.cash),"finances":finance.snapshot(clock.total_minutes),"relationships":relationships.observation(),"resident_mind":resident_mind.snapshot()}
 	for candidate in PrimitiveToolCatalog.available(room_state,{"current_cell":resident_state.current_cell,"held_item_id":resident_state.held_item_id},life_context): action_ids.append(str(candidate.get("tool","")))
 	var strong_needs: Array = []
 	for key in needs_model.values:
@@ -127,6 +138,11 @@ func _request_decision() -> void:
 	last_retrieved_memory_ids = []
 	for memory in memories:
 		last_retrieved_memory_ids.append(str(memory.get("id","")))
+	if mind_dirty:
+		_request_appraisal(memories,life_context)
+		return
+	diagnostics.total_decisions+=1
+	var desire:=float(needs_model.values.get("sexual_desire",0.0));diagnostics.desire_samples=int(diagnostics.get("desire_samples",0))+1;diagnostics.desire_sum=float(diagnostics.get("desire_sum",0.0))+desire;diagnostics.desire_min=min(float(diagnostics.get("desire_min",100.0)),desire);diagnostics.desire_max=max(float(diagnostics.get("desire_max",0.0)),desire)
 	var available_skills:=skill_store.relevant(room_state,resident_state.held_item_id,needs_model.values,resident_state,{"topics":_memory_topics(strong_needs),"strong_needs":strong_needs,"recent_actions":recent_activity_history.slice(0,6)})
 	var observation := ObservationBuilder.build(clock,needs_model,room_state,resident_state.render_position,"idle",memories,goal_store.active_texts(),preferences.summary(),candidates,{"habits":habit_store.summary()},{"cell":resident_state.current_cell,"posture":resident_state.posture,"held_item_id":resident_state.held_item_id},available_skills,_recent_behavior(),life_context)
 	last_observation = JSON.stringify(observation)
@@ -135,6 +151,38 @@ func _request_decision() -> void:
 	decision_revision=_state_revision()
 	if not harness.request_decision(observation,candidates,room_state,goal_store.active_texts(),_config(),_prompt(),resident_state.snapshot(),needs_model.snapshot()):
 		_fallback("LLM request could not start")
+
+func _request_appraisal(memories:Array,life_context:Dictionary)->void:
+	var facts:=ObservationBuilder.build_appraisal_facts(clock,needs_model,room_state,memories,goal_store.active_texts(),preferences.summary(),{"habits":habit_store.summary()},_recent_behavior(),life_context)
+	status="thinking"; diagnostics.appraisal_requests=int(diagnostics.get("appraisal_requests",0))+1
+	if not appraisal_harness.request_appraisal(_config(),FileAccess.get_file_as_string("res://ai/prompts/resident_appraisal_prompt.txt"),facts):
+		_on_appraisal_failed("appraisal_request_could_not_start",0)
+
+func _on_appraisal_ready(mind:Dictionary,latency_ms:int)->void:
+	resident_mind.load_state(mind);resident_mind.updated_at_minutes=clock.total_minutes;mind_revision+=1;resident_mind.source_revision=mind_revision
+	mind_dirty=false;mind_dirty_reason="";diagnostics.appraisal_latency_ms=latency_ms;status="idle";decision_cooldown=0.0
+	_request_decision()
+
+func _on_appraisal_failed(_error:String,latency_ms:int)->void:
+	diagnostics.appraisal_failures=int(diagnostics.get("appraisal_failures",0))+1;diagnostics.appraisal_latency_ms=latency_ms
+	mind_dirty=false;mind_dirty_reason="appraisal_failed_using_previous";status="idle";decision_cooldown=0.0
+	_request_decision()
+
+func _mark_mind_dirty(dirty_reason:String)->void:
+	mind_dirty=true
+	if mind_dirty_reason=="" or mind_dirty_reason=="appraisal_failed_using_previous":mind_dirty_reason=dirty_reason
+
+func _refresh_mind_invalidation()->void:
+	var current:=_current_mind_bands()
+	if current!=mind_bands:
+		mind_bands=current;_mark_mind_dirty("body_changed")
+	if clock.total_minutes-resident_mind.updated_at_minutes>=60.0:_mark_mind_dirty("time_elapsed")
+
+func _current_mind_bands()->Dictionary:
+	var result:Dictionary={}
+	for key in needs_model.values:
+		var value:=float(needs_model.values[key]);result[key]=2 if value>=85.0 else 1 if value>=55.0 else 0
+	return result
 
 func _on_plan_ready(plan:Array, why:String, updates:Dictionary, latency_ms:int, raw_response:String)->void:
 	last_latency_ms=latency_ms; last_response=raw_response; llm_status="Ornith: Connected"; intention=why.left(160); _accept_plan(plan,why,updates,"")
@@ -154,7 +202,9 @@ func _accept_plan(plan:Array, why:String, updates:Dictionary, skill_id:String)->
 	var preflight:=PlanPreflight.validate(plan,room_state,resident_state,needs_model)
 	if not bool(preflight.get("ok",false)):
 		diagnostics.semantic_rejections+=1; var preflight_error:=str(preflight.get("error","unknown")); if preflight_error.begins_with("critical_"): diagnostics.critical_preflight_rejections=int(diagnostics.get("critical_preflight_rejections",0))+1; _fallback("Plan preflight failed: %s"%preflight_error); return
-	goal_store.apply(goal_result.get("updates",{}),clock.text()); current_skill_id=skill_id; if skill_id!="":diagnostics.skills_invoked+=1
+	goal_store.apply(goal_result.get("updates",{}),clock.text())
+	if not goal_result.get("updates",{}).get("add",[]).is_empty() or not goal_result.get("updates",{}).get("complete",[]).is_empty() or not goal_result.get("updates",{}).get("abandon",[]).is_empty():_mark_mind_dirty("goal_changed")
+	current_skill_id=skill_id; if skill_id!="":diagnostics.skills_invoked+=1
 	if skill_id=="":
 		var has_activity:=false
 		for plan_step in plan:
@@ -262,11 +312,13 @@ func _finish_activity()->void:
 	if id=="masturbate":diagnostics.masturbation_completed=int(diagnostics.get("masturbation_completed",0))+1
 	if id=="invite_for_sex":diagnostics.partner_invitations=int(diagnostics.get("partner_invitations",0))+1;diagnostics["partner_accepted" if relationship_outcome=="accepted" else "partner_declined"]=int(diagnostics.get("partner_accepted" if relationship_outcome=="accepted" else "partner_declined",0))+1
 	if id=="sex":diagnostics.sex_completed=int(diagnostics.get("sex_completed",0))+1
+	_mark_mind_dirty("activity_completed")
 	_record_history("activity_completed",id,target,reason)
 	DecisionLogger.append({"time":clock.text(),"action":id,"activity":id,"target":target,"reason":reason,"retrieved_memories":last_retrieved_memory_ids,"goals":goal_store.active_texts(),"latency_ms":last_latency_ms,"validation":"valid","result":"completed"})
 	_complete_plan_step(result)
 
 func _abort_plan(failure_reason:String)->void:
+	_mark_mind_dirty("activity_failed")
 	if activity_executor.is_active():activity_executor.interrupt(failure_reason); activity_executor.reset()
 	plan_executor.abort({"ok":false,"error":failure_reason})
 	diagnostics.plans_aborted+=1
@@ -404,6 +456,7 @@ func _save_game() -> void:
 		"diagnostics":diagnostics,
 		"finance":finance.serialize(),
 		"relationships":relationships.serialize(),
+		"resident_mind":resident_mind.serialize(),
 		"resident_position":[resident_state.render_position.x,resident_state.render_position.y]
 	})
 	save_status = "Saved" if saved else "Save failed"
@@ -432,6 +485,8 @@ func _load_game() -> void:
 	plan_history.load_state(data.get("plan_history",[]))
 	skill_store.load_state(data.get("skills",{}))
 	finance.load_state(data.get("finance",{}));relationships.load_state(data.get("relationships",{}))
+	if data.has("resident_mind") and resident_mind.load_state(data.resident_mind):mind_dirty=false;mind_dirty_reason=""
+	else:mind_dirty=true;mind_dirty_reason="legacy_or_missing_mind"
 	room_state.repair_integrity(resident_state)
 	var loaded_diagnostics=data.get("diagnostics",{})
 	if loaded_diagnostics is Dictionary:
@@ -490,6 +545,7 @@ func _build_ui() -> void:
 	_add_debug_heading("Time")
 	_add_debug_buttons([["+10分",func():_debug_advance_time(10.0)],["+1時間",func():_debug_advance_time(60.0)],["+6時間",func():_debug_advance_time(360.0)],["+1日",func():_debug_advance_time(1440.0)]])
 	_add_debug_heading("Runtime / State")
+	_add_debug_buttons([["再評価",func():_mark_mind_dirty("debug_reappraisal")]])
 
 func _toggle_debug() -> void:
 	debug_panel.visible = not debug_panel.visible
@@ -509,7 +565,7 @@ func _add_need_debug_row(key:String)->void:
 	var value_label:=Label.new(); value_label.custom_minimum_size=Vector2(45,0); row.add_child(value_label)
 	debug_need_sliders[key]=slider; debug_need_value_labels[key]=value_label
 	var update_value:=func(value:float)->void:
-		var clamped:float=clamp(value,0.0,100.0); needs_model.values[key]=clamped; value_label.text="%d" % int(clamped); _update_ui()
+		var clamped:float=clamp(value,0.0,100.0); needs_model.values[key]=clamped; _mark_mind_dirty("debug_body_changed"); value_label.text="%d" % int(clamped); _update_ui()
 	slider.value_changed.connect(update_value); update_value.call(slider.value)
 
 func _add_cleanliness_debug_row()->void:
@@ -517,7 +573,7 @@ func _add_cleanliness_debug_row()->void:
 	var label:=Label.new(); label.text="清潔さ"; label.custom_minimum_size=Vector2(90,0); row.add_child(label)
 	debug_cleanliness_slider=HSlider.new(); debug_cleanliness_slider.min_value=0.0; debug_cleanliness_slider.max_value=100.0; debug_cleanliness_slider.step=1.0; debug_cleanliness_slider.custom_minimum_size=Vector2(560,0); row.add_child(debug_cleanliness_slider)
 	debug_cleanliness_value_label=Label.new(); debug_cleanliness_value_label.custom_minimum_size=Vector2(45,0); row.add_child(debug_cleanliness_value_label)
-	debug_cleanliness_slider.value_changed.connect(func(value:float): room_state.cleanliness=clamp(value,0.0,100.0); debug_cleanliness_value_label.text="%d" % int(room_state.cleanliness); _update_ui())
+	debug_cleanliness_slider.value_changed.connect(func(value:float): room_state.cleanliness=clamp(value,0.0,100.0); _mark_mind_dirty("debug_room_changed"); debug_cleanliness_value_label.text="%d" % int(room_state.cleanliness); _update_ui())
 	_debug_sync_controls()
 	_add_debug_buttons([["清潔さ 0",func():_debug_set_cleanliness(0.0)],["清潔さ 50",func():_debug_set_cleanliness(50.0)],["清潔さ 100",func():_debug_set_cleanliness(100.0)]])
 
@@ -532,20 +588,22 @@ func _debug_sync_controls()->void:
 		debug_cleanliness_value_label.text="%d" % int(cleanliness)
 
 func _debug_set_need(key:String,value:float)->void:
-	if needs_model.values.has(key): needs_model.values[key]=clamp(value,0.0,100.0); _debug_sync_controls(); _update_ui()
+	if needs_model.values.has(key): needs_model.values[key]=clamp(value,0.0,100.0); _mark_mind_dirty("debug_body_changed"); _debug_sync_controls(); _update_ui()
 
 func _debug_set_all_needs(value:float)->void:
 	for key in needs_model.values: needs_model.values[key]=clamp(value,0.0,100.0)
+	_mark_mind_dirty("debug_body_changed")
 	_debug_sync_controls(); _update_ui()
 
 func _debug_restore_needs()->void:
 	var baseline={"hunger":28.0,"thirst":32.0,"sleepiness":20.0,"hygiene_need":22.0,"toilet_need":18.0,"boredom":38.0,"loneliness":18.0,"stress":12.0,"discomfort":8.0,"sexual_desire":20.0}
 	for key in baseline:
 		if needs_model.values.has(key): needs_model.values[key]=baseline[key]
+	_mark_mind_dirty("debug_body_changed")
 	_debug_sync_controls(); _update_ui()
 
 func _debug_set_cleanliness(value:float)->void:
-	room_state.cleanliness=clamp(value,0.0,100.0); _debug_sync_controls(); _update_ui()
+	room_state.cleanliness=clamp(value,0.0,100.0); _mark_mind_dirty("debug_room_changed"); _debug_sync_controls(); _update_ui()
 
 func _debug_advance_time(minutes:float)->void:
 	if status=="thinking": return
@@ -602,7 +660,7 @@ func _update_ui() -> void:
 	if habit_lines.is_empty() and skill_names.is_empty(): personality += "・暮らしの傾向を観察中"
 	if personality_label != null: personality_label.text=personality
 	if debug_panel != null and debug_panel.visible:
-		var debug_text := "STATUS: %s\nACTIVITY: %s  TARGET: %s  STATE: %s\nPOSTURE: %s  CELL: %s  HELD: %s\nPARTNER VISUAL: %s  CONTACT: %s  TYPE: %s  POS: %s  TARGET: %s\nCASH: %d  CLEANLINESS: %.0f  TISSUES: %d  STAINS: %d  TRASH: %d\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,activity_executor.activity_id,activity_executor.target_id,activity_executor.state_name(),resident_state.posture,str(resident_state.current_cell),resident_state.held_item_id,partner_visual.phase_name(),partner_visual.contact_id,partner_visual.relation_type,str(partner_visual.position),str(partner_visual.target_position),finance.cash,room_state.cleanliness,int(room_state.resources.get("tissues",0)),room_state.private_stains,int(room_state.resources.get("trash",0)),validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
+		var debug_text := "STATUS: %s\nACTIVITY: %s  TARGET: %s  STATE: %s\nPOSTURE: %s  CELL: %s  HELD: %s\nPARTNER VISUAL: %s  CONTACT: %s  TYPE: %s  POS: %s  TARGET: %s\nCASH: %d  CLEANLINESS: %.0f  TISSUES: %d  STAINS: %d  TRASH: %d\n\nRESIDENT MIND\nMood: %s\nWants: %s\nConcerns: %s\nAvoidances: %s\nIntentions: %s\nSocial attitude: %s\nEnergy attitude: %s\nLast appraisal minute: %.1f\nDirty: %s  Reason: %s\n\nVALIDATION: %s\nRETRIEVED: %s\nDIAGNOSTICS: %s\nMEMORIES: %d  PLAN HISTORY: %d\n\nLAST OBSERVATION\n%s\n\nRAW RESPONSE\n%s" % [status,activity_executor.activity_id,activity_executor.target_id,activity_executor.state_name(),resident_state.posture,str(resident_state.current_cell),resident_state.held_item_id,partner_visual.phase_name(),partner_visual.contact_id,partner_visual.relation_type,str(partner_visual.position),str(partner_visual.target_position),finance.cash,room_state.cleanliness,int(room_state.resources.get("tissues",0)),room_state.private_stains,int(room_state.resources.get("trash",0)),resident_mind.mood,JSON.stringify(resident_mind.wants),JSON.stringify(resident_mind.concerns),JSON.stringify(resident_mind.avoidances),JSON.stringify(resident_mind.short_term_intentions),resident_mind.social_attitude,resident_mind.energy_attitude,resident_mind.updated_at_minutes,str(mind_dirty),mind_dirty_reason,validation_error,JSON.stringify(last_retrieved_memory_ids),JSON.stringify(diagnostics),memory_store.entries.size(),plan_history.entries.size(),last_observation.left(4500),last_response.left(2500)]
 		debug_label.text = debug_text
 
 func _relationship_quality(value:int)->String:
