@@ -4,11 +4,13 @@ var http:HTTPRequest
 var scenarios=["relevant_memory","learned_preference","established_habit","relevant_skill","goal_vs_need","satiation","failed_call_friend_memory","neutral","low_cash_groceries","low_cash_work","high_desire_private","high_desire_girlfriend","girlfriend_unavailable","paid_unaffordable","friend_low_intimacy","money_relationship_work_tradeoff"]
 const SCENARIO_TIMEOUT:=60.0
 const TOTAL_TIMEOUT:=1020.0
+var sexual_desire_override:=-1.0
 var totals:Dictionary={"json":0,"schema":0,"semantic":0,"first_accepted":0,"schema_repairs":0,"semantic_repairs":0,"recovered":0,"repair_failed":0,"accepted":0,"rejected":0,"timeouts":0}
 
 func _initialize()->void:
 	var requested:=OS.get_cmdline_user_args(); for i in requested.size():
 		if requested[i]=="--scenario" and i+1<requested.size(): scenarios=str(requested[i+1]).split(",")
+		if requested[i]=="--sexual-desire" and i+1<requested.size(): sexual_desire_override=float(requested[i+1])
 	var total_started:=Time.get_ticks_msec(); http=HTTPRequest.new(); http.timeout=5.0; root.add_child(http); await process_frame
 	if not await _models(): print("Ornith live test: SKIPPED - local server unavailable"); quit(0); return
 	for i in scenarios.size():
@@ -30,14 +32,14 @@ func _run_scenario(name:String,index:int=0)->void:
 	var life_context:Dictionary={"cash":finance.cash,"contact_targets":relationships.contacts.keys(),"accepted_partner_targets":[],"sexual_partner_options":relationships.sex_partner_candidates(finance.cash),"finances":finance.snapshot(480.0),"relationships":relationships.observation()}
 	var available:=PrimitiveToolCatalog.available(room,{"current_cell":resident.current_cell,"held_item_id":resident.held_item_id},life_context); var ids:Array=[]; for item in available:ids.append(str(item.get("tool","")))
 	var observation:=ObservationBuilder.build(WorldClock.new(),needs,room,resident.render_position,"idle",memory.retrieve(ids,goals.active_texts(),6,"",[]),goals.active_texts(),prefs.summary(),[],{"habits":habits.summary()},{"cell":resident.current_cell,"posture":resident.posture,"held_item_id":resident.held_item_id},skills.relevant(room,resident.held_item_id,needs.values,resident),{"scenario":name},life_context)
-	var harness:=ResidentHarness.new(); root.add_child(harness); var state:Dictionary={"done":false,"accepted":false,"repairs":0,"recovered":0,"repair_failed":0,"failure":"","first":{"json":false,"schema":false,"semantic":false}}
+	var harness:=ResidentHarness.new(); root.add_child(harness); var state:Dictionary={"done":false,"accepted":false,"repairs":0,"recovered":0,"repair_failed":0,"failure":"","decision_type":"","skill_id":"","tools":[],"primary_activity":"","reason":"","first":{"json":false,"schema":false,"semantic":false}}
 	harness.validation_observed.connect(func(stage,ok,is_repair):if not is_repair:state.first[stage]=ok)
 	harness.validation_failed.connect(func(kind,error,is_repair): print("[%d/%d] %s: validation_failed kind=%s repair=%s error=%s"%[index,scenarios.size(),name,kind,is_repair,error]))
 	harness.repair_attempted.connect(func(kind):state["repairs"]+=1;totals["%s_repairs"%kind]+=1; print("[%d/%d] %s: repair %s"%[index,scenarios.size(),name,kind]))
 	harness.repair_recovered.connect(func():state["recovered"]+=1)
 	harness.repair_failed.connect(func():state["repair_failed"]+=1; print("[%d/%d] %s: repair failed"%[index,scenarios.size(),name]))
-	harness.plan_ready.connect(func(_p,_r,_g,_l,_raw):state["accepted"]=true;state["done"]=true; print("[%d/%d] %s: accepted plan"%[index,scenarios.size(),name]))
-	harness.skill_ready.connect(func(_id,_r,_g,_l,_raw):state["accepted"]=true;state["done"]=true; print("[%d/%d] %s: accepted skill"%[index,scenarios.size(),name]))
+	harness.plan_ready.connect(func(plan,_r,_g,_l,_raw):state["accepted"]=true;state["decision_type"]="plan";state["tools"]=_tool_ids(plan);state["primary_activity"]=_primary_activity(state["tools"]);state["reason"]=_short_reason(_r);state["done"]=true; print("[%d/%d] %s: accepted plan tools=%s primary=%s"%[index,scenarios.size(),name,JSON.stringify(state["tools"]),state["primary_activity"]]))
+	harness.skill_ready.connect(func(id,_r,_g,_l,_raw):state["accepted"]=true;state["decision_type"]="skill";state["skill_id"]=str(id);state["reason"]=_short_reason(_r);state["done"]=true; print("[%d/%d] %s: accepted skill=%s"%[index,scenarios.size(),name,id]))
 	harness.decision_failed.connect(func(error,_l,_raw):state["failure"]=error;state["done"]=true; print("[%d/%d] %s: final failure %s"%[index,scenarios.size(),name,error]))
 	harness.request_decision(observation,available,room,goals.active_texts(),{"base_url":"http://127.0.0.1:8000/v1","model":"Ornith-1.5-9B","temperature":0.3,"timeout_ms":30000,"max_tokens":256},FileAccess.get_file_as_string("res://ai/prompts/resident_system_prompt.txt"),resident.snapshot(),needs.snapshot())
 	var waited:=0.0
@@ -49,7 +51,21 @@ func _run_scenario(name:String,index:int=0)->void:
 	if bool(state["accepted"]) and int(state["repairs"])==0:totals.first_accepted+=1
 	totals.recovered+=int(state.recovered);totals.repair_failed+=int(state.repair_failed)
 	if state.failure=="BENCHMARK_TIMEOUT":totals.timeouts+=1
-	print("%s: final_accepted=%s repair_attempts=%d recovered=%d failure=%s"%[name,state["accepted"],state["repairs"],state["recovered"],state["failure"]]); harness.queue_free(); await process_frame
+	print("%s: final_accepted=%s decision_type=%s tools=%s primary_activity=%s skill_id=%s reason=%s repair_attempts=%d recovered=%d failure=%s"%[name,state["accepted"],state["decision_type"],JSON.stringify(state["tools"]),state["primary_activity"],state["skill_id"],state["reason"],state["repairs"],state["recovered"],state["failure"]]); harness.queue_free(); await process_frame
+
+func _tool_ids(plan:Array)->Array:
+	var result:Array=[]
+	for step in plan: result.append(str(step.get("tool","")))
+	return result
+
+func _primary_activity(tools:Array)->String:
+	var setup:Array=["move_to","move_near","pick_up","open","turn_on","sit","stand","lie_down"]
+	for tool in tools:
+		if str(tool) not in setup and ActivityCatalog.DEFINITIONS.has(str(tool)): return str(tool)
+	return ""
+
+func _short_reason(value:String)->String:
+	return value.replace("\n"," ").strip_edges().left(180)
 
 func _configure(name:String,room:RoomState,resident:ResidentState,needs:ResidentNeeds,memory:MemoryStore,prefs:PreferenceStore,habits:HabitStore,goals:GoalStore,skills:SkillStore,finance:ResidentFinance,relationships:RelationshipStore)->void:
 	if name in ["relevant_memory","learned_preference","established_habit"]:resident.current_cell=room.objects.bookshelf.interaction_cells[0]
@@ -62,7 +78,8 @@ func _configure(name:String,room:RoomState,resident:ResidentState,needs:Resident
 	if name=="failed_call_friend_memory":memory.add("Day 1 18:00","call_friend","Nobody answered.","no_answer",0.7,["phone"],{"loneliness":2.0})
 	if name=="low_cash_groceries":finance.cash=500;room.items.food_stack.quantity=1
 	if name=="low_cash_work":finance.cash=500;needs.values.stress=72.0;room.objects.pc.state=true;resident.current_cell=room.objects.pc.interaction_cells[0]
-	if name in ["high_desire_private","high_desire_girlfriend","girlfriend_unavailable","paid_unaffordable","friend_low_intimacy"]:needs.values.sexual_desire=88.0
+	if name in ["high_desire_private","high_desire_girlfriend","girlfriend_unavailable","paid_unaffordable","friend_low_intimacy"]:needs.values.sexual_desire=98.0 if sexual_desire_override<0.0 else sexual_desire_override
+	if name=="neutral" and sexual_desire_override>=0.0: needs.values.sexual_desire=sexual_desire_override
 	if name=="girlfriend_unavailable":relationships.contacts.girlfriend_01.availability=false
 	if name=="paid_unaffordable":finance.cash=1000
 	if name=="friend_low_intimacy":relationships.contacts.friend_01.intimacy_interest=10
